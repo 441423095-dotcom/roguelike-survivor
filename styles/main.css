@@ -1,0 +1,47 @@
+:root {
+  /* Tells the browser the page handles both, so form controls and scrollbars
+     follow the system too. */
+  color-scheme: light dark;
+
+  --bg: #f4f4f7;
+  --fg: #14161c;
+  --muted: #6b6f7a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #10131a;
+    --fg: #f2f4f8;
+    --muted: #9aa0ad;
+  }
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  /* A game canvas handles its own gestures; the browser must not also scroll,
+     zoom, or fire a 300ms tap delay on top of them. */
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Phaser creates the canvas inside this element and sizes it to match. */
+#stage {
+  width: 100%;
+  height: 100%;
+}
+
+#stage canvas {
+  display: block;
+}
