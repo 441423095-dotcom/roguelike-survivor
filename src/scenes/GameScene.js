@@ -181,6 +181,7 @@ export class GameScene extends Phaser.Scene {
     this.buildPlayer();
     this.buildGroups();
     this.buildControls();
+    this.buildTopBar();
 
     this.startWave(1);
     this.scene.launch('Hud');
@@ -554,6 +555,156 @@ export class GameScene extends Phaser.Scene {
     Sfx.blink();
   }
 
+  // --------------------------------------------------------------- top bar
+
+  /// The health strip, the wave label and the wave clock. They live in this
+  /// scene at depths below the entities, so the player, the horde and the
+  /// bullets always draw over the panel instead of behind it.
+  buildTopBar() {
+    if (this.topBarItems) {
+      for (const item of this.topBarItems) item.destroy();
+    }
+    this.topBarItems = [];
+
+    const L = this.layout;
+    const s = L.uiScale;
+    const top = L.topInset;
+    const stripX = 10;
+    const stripW = L.width - 20;
+    const stripH = Math.round(72 * s);
+
+    // Leave room on the right for the pause button, which stays in the HUD.
+    const pauseR = Math.max(13, Math.round(17 * s));
+    const pauseX = 10 + (L.width - 20) - pauseR - 10;
+    const waveRight = pauseX - pauseR - 14;
+
+    const waveW = Math.round(72 * s);
+    const barX = stripX + 34;
+    const barW = Math.max(56, waveRight - waveW - barX - 8);
+    const barH = Math.max(12, Math.round(14 * s));
+    const hpY = top + stripH * 0.5;
+
+    const panel = this.add.graphics().setDepth(-6);
+    panel.fillStyle(0x0b1018, 0.72);
+    panel.fillRoundedRect(stripX, top, stripW, stripH, 12);
+    panel.lineStyle(2, 0x2bd3c4, 0.5);
+    panel.strokeRoundedRect(stripX, top, stripW, stripH, 12);
+    this.topBarItems.push(panel);
+
+    const heart = this.add
+      .image(stripX + 19, hpY, 'icon-heart')
+      .setDisplaySize(Math.round(18 * s), Math.round(18 * s))
+      .setTint(0xff5a72)
+      .setDepth(-5);
+    this.topBarItems.push(heart);
+
+    this.hpBack = this.add
+      .rectangle(barX, hpY, barW, barH, 0x1b2634)
+      .setOrigin(0, 0.5)
+      .setDepth(-5);
+    this.hpFill = this.add
+      .rectangle(barX, hpY, barW, barH, 0xff5a72)
+      .setOrigin(0, 0.5)
+      .setDepth(-5);
+    this.topBarItems.push(this.hpBack, this.hpFill);
+
+    this.hpText = this.add
+      .text(barX + barW - 8, hpY, '100/100', {
+        fontFamily: FONT,
+        fontSize: `${Math.round(12 * s)}px`,
+        color: '#ffffff',
+        fontStyle: 'bold'
+      })
+      .setOrigin(1, 0.5)
+      .setDepth(-4);
+    this.topBarItems.push(this.hpText);
+
+    this.waveText = this.add
+      .text(waveRight, hpY, '第 1 波', {
+        fontFamily: FONT,
+        fontSize: `${Math.round(16 * s)}px`,
+        color: '#ffffff',
+        fontStyle: 'bold'
+      })
+      .setOrigin(1, 0.5)
+      .setDepth(-4);
+    this.topBarItems.push(this.waveText);
+
+    // The wave clock, centred under the strip.
+    const timerW = Math.round(140 * s);
+    const timerH = Math.round(40 * s);
+    const timerX = L.width / 2 - timerW / 2;
+    const timerY = top + stripH + 6;
+
+    this.timerGfx = this.add.graphics().setDepth(-6);
+    this.timerGfx.fillStyle(0x0b1018, 0.6);
+    this.timerGfx.fillRoundedRect(timerX, timerY, timerW, timerH, 12);
+    this.timerGfx.lineStyle(2, 0x2bd3c4, 0.45);
+    this.timerGfx.strokeRoundedRect(timerX, timerY, timerW, timerH, 12);
+    this.topBarItems.push(this.timerGfx);
+
+    this.timerText = this.add
+      .text(L.width / 2, timerY + timerH * 0.42, '20s', {
+        fontFamily: FONT,
+        fontSize: `${Math.round(24 * s)}px`,
+        color: '#ffffff',
+        fontStyle: 'bold'
+      })
+      .setOrigin(0.5)
+      .setDepth(-4);
+    this.topBarItems.push(this.timerText);
+
+    const timerBarW = timerW - 24;
+    const timerBarH = Math.max(3, Math.round(4 * s));
+
+    this.timerBack = this.add
+      .rectangle(timerX + 12, timerY + timerH - 9, timerBarW, timerBarH, 0x1d2a3a)
+      .setOrigin(0, 0.5)
+      .setDepth(-5);
+    this.timerFill = this.add
+      .rectangle(timerX + 12, timerY + timerH - 9, timerBarW, timerBarH, 0x2bd3c4)
+      .setOrigin(0, 0.5)
+      .setDepth(-5);
+    this.topBarItems.push(this.timerBack, this.timerFill);
+
+    sharpenText(this);
+  }
+
+  /// Keeps the strip in sync with the run: health, wave label and clock.
+  updateTopBar() {
+    if (!this.hpFill || !this.hpText || !this.waveText) return;
+
+    const s = this.state;
+    const boss = !!this.bossFight;
+    const clearing = !!this.waveEnding;
+    const left = Math.max(0, s.waveLeft);
+    const total = waveDuration(s.wave);
+
+    this.hpFill.setScale(
+      Math.max(0.0001, Phaser.Math.Clamp(s.hp / s.maxHp, 0, 1)),
+      1
+    );
+    this.hpText.setText(`${Math.ceil(s.hp)}/${s.maxHp}`);
+    this.waveText.setText(
+      isEndlessWave(s.wave) ? `无尽波 ${s.wave}` : `第 ${s.wave} 波`
+    );
+
+    this.timerText.setText(
+      boss ? '首领' : clearing ? '清场' : `${Math.ceil(left)}s`
+    );
+
+    const urgent = !boss && !clearing && left <= 5;
+    this.timerText.setColor(
+      urgent ? COLORS.dangerHex : boss ? '#ff9db0' : '#ffffff'
+    );
+    this.timerText.setScale(urgent ? 1 + 0.07 * Math.sin(this.time.now / 90) : 1);
+
+    const ratio = total > 0 ? Math.min(1, left / total) : 0;
+    this.timerBack.setVisible(!boss);
+    this.timerFill.setVisible(!boss);
+    this.timerFill.setScale(Math.max(0.0001, ratio), 1);
+  }
+
   // ----------------------------------------------------------------- frame
 
   update(time, delta) {
@@ -580,6 +731,7 @@ export class GameScene extends Phaser.Scene {
     this.updateCompanions(delta);
 
     this.drawDash();
+    this.updateTopBar();
 
     this.shadow.setPosition(this.player.x, this.player.y + 15);
   }
@@ -3376,6 +3528,7 @@ export class GameScene extends Phaser.Scene {
     this.player.y = Phaser.Math.Clamp(this.player.y, 18, field.height - 18);
 
     this.drawDash();
+    this.buildTopBar();
   }
 
   // ----------------------------------------------------------------- banner

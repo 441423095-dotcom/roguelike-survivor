@@ -8,7 +8,6 @@ import { makeButton } from '../ui/widgets.js';
 import { sharpenText } from '../ui/text.js';
 import { haptic } from '../haptics.js';
 import { initAudio, startMusic, Sfx } from '../game/audio.js';
-import { waveDuration, isEndlessWave } from '../game/enemies.js';
 
 export class HudScene extends Phaser.Scene {
   constructor() {
@@ -46,95 +45,13 @@ export class HudScene extends Phaser.Scene {
   build() {
     const L = this.layout;
     const top = L.topInset;
-    const stripX = 10;
-    const stripW = L.width - 20;
     const stripH = Math.round(72 * L.uiScale);
-    const size = (n) => `${Math.round(n * L.uiScale)}px`;
 
-    // The strip has to sit *behind* everything it frames: the bars, numbers and
-    // icons are all created at the default depth, so a panel drawn above them
-    // hid the health bar and the timer completely.
-    this.panel = this.add.graphics().setDepth(-1);
-    this.panel.fillStyle(0x0b1018, 0.72);
-    this.panel.fillRoundedRect(stripX, top, stripW, stripH, 12);
-    this.panel.lineStyle(2, 0x2bd3c4, 0.5);
-    this.panel.strokeRoundedRect(stripX, top, stripW, stripH, 12);
-
+    // The health strip, wave label and clock are drawn by the game scene itself
+    // (below its sprites). Only the controls and the boss bar live up here.
     const pauseR = Math.max(13, Math.round(17 * L.uiScale));
-    const pauseX = stripX + stripW - pauseR - 10;
+    const pauseX = 10 + (L.width - 20) - pauseR - 10;
     const pauseY = top + stripH / 2;
-
-    const barX = stripX + 34;
-    const barW = Math.max(70, pauseX - pauseR - barX - 12);
-    const barH = Math.max(12, Math.round(14 * L.uiScale));
-    const hpY = top + stripH * 0.5;
-
-    this.heart = this.add
-      .image(stripX + 19, hpY, 'icon-heart')
-      .setDisplaySize(Math.round(18 * L.uiScale), Math.round(18 * L.uiScale))
-      .setTint(0xff5a72);
-
-    this.hpBack = this.add
-      .rectangle(barX, hpY, barW, barH, 0x1b2634)
-      .setOrigin(0, 0.5);
-    this.hpFill = this.add
-      .rectangle(barX, hpY, barW, barH, 0xff5a72)
-      .setOrigin(0, 0.5);
-
-    this.hpText = this.add
-      .text(barX + barW - 8, hpY, '100/100', {
-        fontFamily: FONT,
-        fontSize: size(13),
-        color: '#ffffff',
-        fontStyle: 'bold'
-      })
-      .setOrigin(1, 0.5);
-
-    const waveRight = pauseX - pauseR - 10;
-    this.waveText = this.add
-      .text(waveRight, top + stripH * 0.5, '第 1 波', {
-        fontFamily: FONT,
-        fontSize: size(17),
-        color: '#ffffff',
-        fontStyle: 'bold'
-      })
-      .setOrigin(1, 0.5);
-
-    // The wave clock, big and centred just under the strip, where the eye
-    // lands: the number is the run's whole rhythm, so it gets the space.
-    const timerW = Math.round(140 * L.uiScale);
-    const timerH = Math.round(40 * L.uiScale);
-    const timerX = L.width / 2 - timerW / 2;
-    const timerY = top + stripH + 6;
-
-    this.timerGfx = this.add.graphics().setDepth(1);
-    this.timerGfx.fillStyle(0x0b1018, 0.6);
-    this.timerGfx.fillRoundedRect(timerX, timerY, timerW, timerH, 12);
-    this.timerGfx.lineStyle(2, 0x2bd3c4, 0.45);
-    this.timerGfx.strokeRoundedRect(timerX, timerY, timerW, timerH, 12);
-
-    this.timerText = this.add
-      .text(L.width / 2, timerY + timerH * 0.42, '20s', {
-        fontFamily: FONT,
-        fontSize: `${Math.round(24 * L.uiScale)}px`,
-        color: '#ffffff',
-        fontStyle: 'bold'
-      })
-      .setOrigin(0.5)
-      .setDepth(2);
-
-    const timerBarW = timerW - 24;
-    const timerBarH = Math.max(3, Math.round(4 * L.uiScale));
-
-    this.timerBack = this.add
-      .rectangle(timerX + 12, timerY + timerH - 9, timerBarW, timerBarH, 0x1d2a3a)
-      .setOrigin(0, 0.5)
-      .setDepth(2);
-
-    this.timerFill = this.add
-      .rectangle(timerX + 12, timerY + timerH - 9, timerBarW, timerBarH, 0x2bd3c4)
-      .setOrigin(0, 0.5)
-      .setDepth(2);
 
     makeButton(this, {
       x: pauseX,
@@ -199,33 +116,6 @@ export class HudScene extends Phaser.Scene {
 
     this.dangerGfx = g;
     this.dangerShown = false;
-  }
-
-  /// The centred wave clock: the seconds left, a bar for how much of the wave is
-  /// gone, and a red pulse in the last five seconds.
-  updateTimer(run, s) {
-    if (!this.timerText) return;
-
-    const boss = !!run.bossFight;
-    const clearing = !!run.waveEnding;
-    const left = Math.max(0, s.waveLeft);
-    const total = waveDuration(s.wave);
-    const ratio = total > 0 ? Math.min(1, left / total) : 0;
-
-    if (boss) this.timerText.setText('首领');
-    else if (clearing) this.timerText.setText('清场');
-    else this.timerText.setText(`${Math.ceil(left)}s`);
-
-    const urgent = !boss && !clearing && left <= 5;
-
-    this.timerText.setColor(
-      urgent ? COLORS.dangerHex : boss ? '#ff9db0' : '#ffffff'
-    );
-    this.timerText.setScale(urgent ? 1 + 0.07 * Math.sin(this.time.now / 90) : 1);
-
-    this.timerBack.setVisible(!boss);
-    this.timerFill.setVisible(!boss);
-    this.timerFill.setScale(Math.max(0.0001, ratio), 1);
   }
 
   updateDanger(run) {
@@ -382,19 +272,7 @@ export class HudScene extends Phaser.Scene {
 
   update() {
     const run = this.scene.get('Game');
-    if (!run || !run.state || !this.hpFill) return;
-    const s = run.state;
-
-    this.hpFill.setScale(
-      Math.max(0.0001, Phaser.Math.Clamp(s.hp / s.maxHp, 0, 1)),
-      1
-    );
-    this.hpText.setText(`${Math.ceil(s.hp)}/${s.maxHp}`);
-
-    this.waveText.setText(
-      isEndlessWave(s.wave) ? `无尽波 ${s.wave}` : `第 ${s.wave} 波`
-    );
-    this.updateTimer(run, s);
+    if (!run || !run.state) return;
 
     this.updateBossBar(run);
     this.updateDanger(run);
