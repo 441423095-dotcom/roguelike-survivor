@@ -362,7 +362,7 @@ export const ACTIVE_POOL = [
     max: 2,
     basePrice: 24,
     desc: (level) =>
-      `每 ${activeCooldown('mine', level)} 秒在脚下埋一颗地雷，敌人踩到就爆炸`
+      `每 ${activeCooldown('mine', level)} 秒埋一颗地雷，踩到就爆炸`
   },
   {
     key: 'totem',
@@ -385,7 +385,7 @@ export const ACTIVE_POOL = [
     max: 2,
     basePrice: 30,
     desc: (level) =>
-      `每 ${activeCooldown('emp', level)} 秒放出冲击波，伤害并减速全场敌人`
+      `每 ${activeCooldown('emp', level)} 秒冲击波，伤害并减速敌人`
   },
   {
     key: 'chicken',
@@ -397,7 +397,7 @@ export const ACTIVE_POOL = [
     max: 2,
     basePrice: 28,
     desc: (level) =>
-      `每 ${activeCooldown('chicken', level)} 秒尖叫一声：全场敌人受点伤并被吓得减速`
+      `每 ${activeCooldown('chicken', level)} 秒尖叫：伤害并减速全场敌人`
   },
   {
     key: 'blackhole',
@@ -409,7 +409,7 @@ export const ACTIVE_POOL = [
     max: 2,
     basePrice: 32,
     desc: (level) =>
-      `每 ${activeCooldown('blackhole', level)} 秒在随机位置开一个黑洞，把敌人吸过去再炸开`
+      `每 ${activeCooldown('blackhole', level)} 秒开黑洞，吸住敌人再炸开`
   }
 ];
 

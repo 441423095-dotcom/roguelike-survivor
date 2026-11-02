@@ -711,17 +711,19 @@ export class ShopScene extends Phaser.Scene {
 
     // The full detail line, so an owned gun can be inspected as well as sold.
     if (target.desc) {
-      this.add
-        .text(cx, cy - panelH / 2 + 104 * s, target.desc, {
+      const sellDesc = this.add
+        .text(cx, cy - panelH / 2 + 104 * s, '', {
           fontFamily: FONT,
           fontSize: `${Math.round(11 * s)}px`,
-          color: COLORS.dim,
+          color: '#d6e3ee',
           align: 'center',
-          wordWrap: { width: panelW - 30 * s },
+          wordWrap: { width: panelW - 30 * s, useAdvancedWrap: true },
           lineSpacing: Math.round(3 * s)
         })
         .setOrigin(0.5, 0)
         .setDepth(22);
+
+      this.fitLines(sellDesc, target.desc, 3);
     }
 
     // Sell it or keep it — the choice is always the player's.
@@ -902,10 +904,10 @@ export class ShopScene extends Phaser.Scene {
       .setDisplaySize(lockSize * 0.8, lockSize * 0.8)
       .setDepth(5);
 
-    // The price sits on the name row, right-aligned and clear of the lock, so
-    // the whole width underneath is free for the card's one-line intro.
-    const priceX = right - 30 * s;
-    const priceY = top + 20 * s;
+    // The price is pinned to the bottom-right corner of the cell, whatever the
+    // text above it does.
+    const priceX = right - 9 * s;
+    const priceY = bottom - 11 * s;
 
     const coinIcon = this.add
       .image(priceX - 24 * s, priceY, 'coin')
@@ -915,7 +917,7 @@ export class ShopScene extends Phaser.Scene {
     const priceText = this.add
       .text(priceX, priceY, '', {
         fontFamily: FONT,
-        fontSize: `${Math.round(12 * s)}px`,
+        fontSize: `${Math.round(13 * s)}px`,
         color: hex,
         fontStyle: 'bold'
       })
@@ -950,41 +952,45 @@ export class ShopScene extends Phaser.Scene {
     this.add
       .text(textX, iconY, item.name, {
         fontFamily: FONT,
-        fontSize: `${Math.round(12.5 * s)}px`,
+        fontSize: `${Math.round(13 * s)}px`,
         color: COLORS.ink,
-        fontStyle: 'bold'
+        fontStyle: 'bold',
+        stroke: '#04070c',
+        strokeThickness: Math.max(2, Math.round(2.5 * s))
       })
       .setOrigin(0, 0.5)
       .setDepth(3);
 
-    // No rarity or 主动/被动 line: the border already carries the tier, and the
-    // second line is the card's whole width for its one-line intro. A gun's
-    // level rides at the front of that line instead.
+    // The intro wraps by character (Chinese has no spaces to break on) and is
+    // trimmed with an ellipsis if it needs more lines than the card can show.
     const descText = this.add
       .text(
         left + 9 * s,
-        top + 28 * s,
-        item.kind === 'weapon'
-          ? `Lv${item.level || 1} · ${item.desc}`
-          : item.desc,
+        top + 27 * s,
+        '',
         {
           fontFamily: FONT,
-          fontSize: `${Math.round(9.5 * s)}px`,
-          color: COLORS.dim,
-          wordWrap: { width: Math.max(60, w - 18 * s) },
+          fontSize: `${Math.round(11 * s)}px`,
+          color: '#d6e3ee',
+          wordWrap: { width: Math.max(60, w - 18 * s), useAdvancedWrap: true },
           lineSpacing: Math.round(1 * s)
         }
       )
       .setOrigin(0, 0)
       .setDepth(3);
 
-    if (descText.setMaxLines) {
-      // As many lines as the cell honestly has room for, never more.
-      const lineH = Math.max(9, Math.round(10.5 * s));
-      const room = h - Math.round(30 * s);
-      const lines = Math.max(1, Math.min(3, Math.floor(room / lineH)));
-      descText.setMaxLines(lines);
-    }
+    const descLineH = Math.max(10, Math.round(11.5 * s));
+    const descLines = Math.max(
+      1,
+      Math.min(2, Math.floor((h - 30 * s) / descLineH))
+    );
+    this.fitLines(
+      descText,
+      item.kind === 'weapon'
+        ? `Lv${item.level || 1} · ${item.desc}`
+        : item.desc,
+      descLines
+    );
 
     const paintLock = () => {
       const locked = !!item.locked;
@@ -1058,6 +1064,24 @@ export class ShopScene extends Phaser.Scene {
     lockZone.on('pointerdown', () => this.toggleLock(index));
 
     this.refs.push({ item, paint });
+  }
+
+  /// Phaser's basic wrap never breaks a Chinese sentence (there are no spaces
+  /// to break on), which is what let long card text run over the border. This
+  /// measures the wrapped height and, if it still needs more lines than the card
+  /// can show, trims it and ends it with an ellipsis.
+  fitLines(label, text, maxLines) {
+    label.setText('M');
+    const lineH = Math.max(1, label.height);
+
+    label.setText(text);
+    let shown = text;
+    let guard = 0;
+
+    while (label.height > lineH * maxLines + 1 && shown.length > 1 && guard++ < 200) {
+      shown = shown.slice(0, -1);
+      label.setText(`${shown}…`);
+    }
   }
 
   /// Pins or unpins a card. A locked card stays on the shelf through a refresh
@@ -1185,16 +1209,18 @@ export class ShopScene extends Phaser.Scene {
       .setOrigin(0, 0.5)
       .setDepth(22);
 
-    this.add
-      .text(left + 18 * s, top + 70 * s, this.itemDetail(item), {
+    const detailText = this.add
+      .text(left + 18 * s, top + 70 * s, '', {
         fontFamily: FONT,
         fontSize: `${Math.round(11 * s)}px`,
-        color: COLORS.dim,
-        wordWrap: { width: panelW - 36 * s },
+        color: '#d6e3ee',
+        wordWrap: { width: panelW - 36 * s, useAdvancedWrap: true },
         lineSpacing: Math.round(3 * s)
       })
       .setOrigin(0, 0)
       .setDepth(22);
+
+    this.fitLines(detailText, this.itemDetail(item), 5);
 
     this.add
       .image(left + 26 * s, cy + panelH / 2 - 62 * s, 'coin')
