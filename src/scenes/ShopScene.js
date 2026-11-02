@@ -176,35 +176,43 @@ export class ShopScene extends Phaser.Scene {
     // above it has to give up that room rather than be drawn over.
     const areaBottom = H - (this.replaceItem ? 212 : 182) * s;
 
-    // Trinkets on the top shelf, weapons under them, each keeping its real
-    // index into the run's stock so a tap still buys the card that was shown.
+    // Trinkets on the top shelf, weapons under them, both in a two-column grid:
+    // nine cards fit a phone without a scroll, and each price sits in the
+    // bottom-right corner of its own cell.
     const entries = items.map((item, index) => ({ item, index }));
     const trinkets = entries.filter((entry) => entry.item.kind !== 'weapon');
     const guns = entries.filter((entry) => entry.item.kind === 'weapon');
 
     const shelves = [];
     if (trinkets.length > 0) {
-      shelves.push({ label: '道具 · 被动 / 主动', cards: trinkets });
+      shelves.push({ label: `道具 · ${trinkets.length}`, cards: trinkets });
     }
     if (guns.length > 0) {
-      shelves.push({ label: '武器 · 能换也能合成', cards: guns });
+      shelves.push({ label: `武器 · ${guns.length}`, cards: guns });
     }
 
-    // Each shelf gets a share of the space in proportion to how many cards it
-    // holds, so the two weapons are as easy to hit as the three trinkets.
-    const weights = shelves.map((shelf) => Math.max(1, shelf.cards.length));
-    const weightTotal = weights.reduce((a, b) => a + b, 0) || 1;
-    const avail = Math.max(160, areaBottom - areaTop);
+    const colGap = Math.round(8 * s);
+    const cellW = (cardW - colGap) / 2;
+    const rowsFor = (count) => Math.ceil(count / 2);
+    const totalRows = shelves.reduce(
+      (sum, shelf) => sum + rowsFor(shelf.cards.length),
+      0
+    );
+
+    const rowGap = Math.round(7 * s);
+    const avail = Math.max(240, areaBottom - areaTop);
+    const cellH = Math.max(
+      62,
+      Math.min(
+        100 * s,
+        (avail - labelH * shelves.length - rowGap * (totalRows + shelves.length)) /
+          Math.max(1, totalRows)
+      )
+    );
+
     let y = areaTop;
 
-    shelves.forEach((shelf, shelfIndex) => {
-      const count = Math.max(1, shelf.cards.length);
-      const share = (avail * weights[shelfIndex]) / weightTotal;
-      const cardH = Math.max(
-        56,
-        Math.min(104 * s, (share - labelH - gap * count) / count)
-      );
-
+    shelves.forEach((shelf) => {
       this.add
         .text(W / 2 - cardW / 2 + 4 * s, y + labelH / 2, shelf.label, {
           fontFamily: FONT,
@@ -217,11 +225,15 @@ export class ShopScene extends Phaser.Scene {
       y += labelH;
 
       shelf.cards.forEach((entry, index) => {
-        const cy = y + index * (cardH + gap) + cardH / 2;
-        this.buildCard(entry.item, entry.index, W / 2, cy, cardW, cardH, s);
+        const col = index % 2;
+        const row = Math.floor(index / 2);
+        const cx = W / 2 - cardW / 2 + cellW / 2 + col * (cellW + colGap);
+        const cy = y + row * (cellH + rowGap) + cellH / 2;
+        this.buildCard(entry.item, entry.index, cx, cy, cellW, cellH, s);
       });
 
-      y += cardH * count + gap * (count - 1) + gap;
+      const rows = rowsFor(shelf.cards.length);
+      y += rows * cellH + (rows - 1) * rowGap + rowGap;
     });
 
     // What the run already carries, right where the thumb already is.
@@ -811,16 +823,23 @@ export class ShopScene extends Phaser.Scene {
   }
 
   buildCard(item, index, cx, cy, w, h, s) {
-    const color = Number.isFinite(item.color) ? item.color : COLORS.accent;
-    const hex = item.hex || COLORS.accentHex;
+    const rarity = rarityFor(item.rarity || 'common');
+    const rarityName = item.rarityName || rarity.name;
+    // Trinkets keep their own colour so they stay recognisable; a weapon is
+    // painted by its tier. The tag and the glow speak for both.
+    const color =
+      item.kind === 'weapon' || !Number.isFinite(item.color)
+        ? rarity.color
+        : item.color;
+    const hex = item.kind === 'weapon' ? rarity.hex : item.hex || rarity.hex;
 
     const g = this.add.graphics().setDepth(2);
 
-    // Rarer weapon cards glow behind the border, so a gold pull reads as one.
-    if (item.kind === 'weapon' && item.rank >= 2) {
+    // Rarer cards glow behind the border, so a blue pull reads as one.
+    if (item.rank >= 2) {
       const spread = 3 + item.rank * 2;
       const glow = this.add.graphics().setDepth(1);
-      glow.fillStyle(color, 0.08 + item.rank * 0.04);
+      glow.fillStyle(rarity.color, 0.08 + item.rank * 0.04);
       glow.fillRoundedRect(
         cx - w / 2 - spread,
         cy - h / 2 - spread,
@@ -828,7 +847,7 @@ export class ShopScene extends Phaser.Scene {
         h + spread * 2,
         16
       );
-      glow.lineStyle(3, color, 0.2 + item.rank * 0.07);
+      glow.lineStyle(3, rarity.color, 0.2 + item.rank * 0.07);
       glow.strokeRoundedRect(
         cx - w / 2 - spread,
         cy - h / 2 - spread,
@@ -838,26 +857,35 @@ export class ShopScene extends Phaser.Scene {
       );
     }
 
-    const priceX = cx + w / 2 - 16 * s;
-    const priceY = cy + h * 0.22;
+    const left = cx - w / 2;
+    const top = cy - h / 2;
+    const right = cx + w / 2;
+    const bottom = cy + h / 2;
+
+    // Every price sits on one baseline in the bottom-right corner of its cell,
+    // with the coin tucked against the number, so the grid reads as columns.
+    const priceX = right - 9 * s;
+    const priceY = bottom - 11 * s;
 
     const coinIcon = this.add
-      .image(priceX - 30 * s, priceY, 'coin')
-      .setDisplaySize(13 * s, 13 * s)
+      .image(priceX - 24 * s, priceY, 'coin')
+      .setDisplaySize(11 * s, 11 * s)
       .setDepth(3);
+
     const priceText = this.add
       .text(priceX, priceY, '', {
         fontFamily: FONT,
-        fontSize: `${Math.round(14 * s)}px`,
+        fontSize: `${Math.round(12 * s)}px`,
         color: hex,
         fontStyle: 'bold'
       })
       .setOrigin(1, 0.5)
       .setDepth(3);
+
     const soldText = this.add
       .text(priceX, priceY, '已购买', {
         fontFamily: FONT,
-        fontSize: `${Math.round(13 * s)}px`,
+        fontSize: `${Math.round(11 * s)}px`,
         color: COLORS.accentHex,
         fontStyle: 'bold'
       })
@@ -865,24 +893,24 @@ export class ShopScene extends Phaser.Scene {
       .setDepth(3)
       .setVisible(false);
 
-    const iconSize = Math.min(h * 0.42, 36 * s);
-    const iconX = cx - w / 2 + 20 * s + iconSize / 2;
-    // Trinkets are pictured by their own emoji rather than a symbol texture.
+    const iconSize = Math.min(19 * s, h * 0.3);
+    const iconX = left + 9 * s + iconSize / 2;
+    const iconY = top + 10 * s + iconSize / 2;
+
     this.add
-      .text(iconX, cy, item.emoji || '❓', {
+      .text(iconX, iconY, item.emoji || '❓', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: `${Math.round(iconSize * 0.95)}px`
       })
       .setOrigin(0.5)
       .setDepth(3);
 
-    const textX = iconX + iconSize / 2 + 14 * s;
-    const textW = Math.max(60, priceX - 52 * s - textX);
+    const textX = iconX + iconSize / 2 + 6 * s;
 
-    const nameText = this.add
-      .text(textX, cy - h * 0.18, item.name, {
+    this.add
+      .text(textX, iconY, item.name, {
         fontFamily: FONT,
-        fontSize: `${Math.round(16 * s)}px`,
+        fontSize: `${Math.round(12.5 * s)}px`,
         color: COLORS.ink,
         fontStyle: 'bold'
       })
@@ -890,9 +918,9 @@ export class ShopScene extends Phaser.Scene {
       .setDepth(3);
 
     const tagText = this.add
-      .text(textX + nameText.width + 8 * s, cy - h * 0.18, '', {
+      .text(textX, iconY + Math.round(13 * s), '', {
         fontFamily: FONT,
-        fontSize: `${Math.round(11 * s)}px`,
+        fontSize: `${Math.round(9 * s)}px`,
         color: hex
       })
       .setOrigin(0, 0.5)
@@ -900,46 +928,59 @@ export class ShopScene extends Phaser.Scene {
 
     const paintTag = () => {
       if (item.kind === 'weapon') {
-        tagText.setText(`${item.rarityName} · Lv${item.level}`);
+        tagText.setText(`${rarityName} · Lv${item.level || 1}`);
         return;
       }
 
       const have = this.owned(item.key);
       const kind = item.active ? '主动' : '被动';
-      tagText.setText(have > 0 ? `${kind} ×${have}` : `${kind}道具`);
+      const stacks = Math.max(1, item.stacks || 1);
+      const count = stacks > 1 ? ` ×${stacks}` : have > 0 ? ` ×${have}` : '';
+      tagText.setText(`${rarityName}${count} · ${kind}`);
     };
 
     paintTag();
 
-    this.add
-      .text(textX, cy + h * 0.16, item.desc, {
+    // The description takes whatever room is left between the tag and the
+    // price; on a very short card it is dropped rather than made to collide.
+    const descText = this.add
+      .text(left + 9 * s, top + Math.round(38 * s), item.desc, {
         fontFamily: FONT,
-        fontSize: `${Math.round(13 * s)}px`,
+        fontSize: `${Math.round(9.5 * s)}px`,
         color: COLORS.dim,
-        wordWrap: { width: textW }
+        wordWrap: { width: Math.max(60, w - 18 * s) },
+        lineSpacing: Math.round(1 * s)
       })
-      .setOrigin(0, 0.5)
+      .setOrigin(0, 0)
       .setDepth(3);
+
+    if (descText.setMaxLines) descText.setMaxLines(2);
 
     const paint = () => {
       const affordable = this.coins() >= item.price;
 
       g.clear();
       g.fillStyle(item.sold ? 0x101a16 : 0x0f1521, 0.97);
-      g.fillRoundedRect(cx - w / 2, cy - h / 2, w, h, 14);
+      g.fillRoundedRect(left, top, w, h, 12);
       g.lineStyle(
         2,
         item.sold ? 0x39a05a : color,
         item.sold ? 0.5 : affordable ? 0.85 : 0.35
       );
-      g.strokeRoundedRect(cx - w / 2, cy - h / 2, w, h, 14);
+      g.strokeRoundedRect(left, top, w, h, 12);
 
-      coinIcon.setVisible(!item.sold).setAlpha(affordable ? 1 : 0.4);
       priceText
         .setVisible(!item.sold)
         .setText(String(item.price))
         .setColor(affordable ? hex : COLORS.dangerHex);
+      coinIcon.setVisible(!item.sold).setAlpha(affordable ? 1 : 0.4);
+      // Keep the coin hugging whatever width the number ended up being.
+      coinIcon.x = priceX - priceText.width - 7 * s;
+
       soldText.setVisible(item.sold);
+
+      const room = Math.round(38 * s) + descText.height < h - 18 * s;
+      descText.setVisible(!item.sold && room);
 
       paintTag();
     };
@@ -963,7 +1004,8 @@ export class ShopScene extends Phaser.Scene {
 
     if (item.kind === 'item') {
       const def = ITEM_BY_KEY[item.key];
-      if (!def || this.owned(item.key) >= (def.max || 1)) return 'max';
+      const stacks = Math.max(1, item.stacks || 1);
+      if (!def || this.owned(item.key) + stacks > (def.max || 1)) return 'max';
     }
 
     if (item.kind === 'weapon') {

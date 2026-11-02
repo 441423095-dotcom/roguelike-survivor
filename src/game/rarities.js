@@ -105,29 +105,85 @@ export function rarityColor(key) {
   return rarityFor(key).color;
 }
 
-/// Rarity weights tilt towards the top tiers as the run goes deeper: wave 1 is
-/// almost always white, wave 20 can hand out gold.
-export function rollWeaponRarity(wave) {
-  const t = Math.min(1, Math.max(0, ((wave || 1) - 1) / 19));
+// How the shelf's quality opens up with the wave. Each anchor is the weight of
+// white / green / blue / purple / gold at that wave, and anything in between is
+// blended. The first three waves are deliberately white and green only; by wave
+// five every shelf promises at least one blue, and a deep run stops showing
+// plain white guns almost entirely.
+const RARITY_CURVE = [
+  { wave: 1, weights: [80, 20, 0, 0, 0] },
+  { wave: 3, weights: [62, 38, 0, 0, 0] },
+  { wave: 5, weights: [36, 40, 24, 0, 0] },
+  { wave: 7, weights: [18, 32, 40, 10, 0] },
+  { wave: 10, weights: [6, 20, 40, 30, 4] },
+  { wave: 14, weights: [0, 10, 30, 40, 20] },
+  { wave: 20, weights: [0, 2, 16, 38, 44] }
+];
 
-  const weights = [
-    78 - 68 * t, // common
-    18 + 4 * t, // uncommon
-    3.5 + 28.5 * t, // rare
-    0.4 + 23.6 * t, // epic
-    0.1 + 11.9 * t // legendary
-  ];
+/// The blend of tiers this wave rolls from, as weights in rarity order.
+export function rarityWeights(wave) {
+  const w = Math.max(1, wave || 1);
+  const first = RARITY_CURVE[0];
+  if (w <= first.wave) return first.weights.slice();
+
+  for (let i = 1; i < RARITY_CURVE.length; i++) {
+    const from = RARITY_CURVE[i - 1];
+    const to = RARITY_CURVE[i];
+    if (w <= to.wave) {
+      const t = (w - from.wave) / (to.wave - from.wave);
+      return from.weights.map(
+        (weight, rank) => weight + (to.weights[rank] - weight) * t
+      );
+    }
+  }
+
+  return RARITY_CURVE[RARITY_CURVE.length - 1].weights.slice();
+}
+
+/// The worst tier a wave can still roll. Deep runs never fall back to white.
+export function rarityFloor(wave) {
+  const w = Math.max(1, wave || 1);
+  if (w >= 16) return 1;
+  return 0;
+}
+
+/// Rolls one tier for this wave. `minRank` forces the result to be at least
+/// that good, which is how the shop promises a real weapon every visit.
+export function rollWeaponRarity(wave, minRank = 0) {
+  const weights = rarityWeights(wave);
+  const floor = Math.max(minRank, rarityFloor(wave), 0);
 
   let total = 0;
-  for (const weight of weights) total += weight;
+  for (let i = floor; i < weights.length; i++) total += weights[i];
+
+  if (total <= 0) return WEAPON_RARITIES[Math.min(floor, WEAPON_RARITIES.length - 1)];
 
   let roll = Math.random() * total;
-  for (let i = 0; i < weights.length; i++) {
+  for (let i = floor; i < weights.length; i++) {
     roll -= weights[i];
     if (roll <= 0) return WEAPON_RARITIES[i];
   }
-  return WEAPON_RARITIES[0];
+
+  return WEAPON_RARITIES[Math.min(floor, WEAPON_RARITIES.length - 1)];
 }
+
+/// The best tier the shelf is promised to hold: from wave five a blue weapon is
+/// always on the table, from wave nine a purple, from wave fourteen a gold.
+export function shelfFloor(wave) {
+  const w = Math.max(1, wave || 1);
+  if (w >= 14) return 3;
+  if (w >= 9) return 2;
+  if (w >= 5) return 2;
+  return 0;
+}
+
+/// The level a gun is sold at: Lv1 at the start, one more every three waves, so
+/// a late shop hands out something that can actually replace what you carry.
+export function weaponLevel(wave) {
+  const w = Math.max(1, wave || 1);
+  return Math.min(5, 1 + Math.floor((w - 1) / 3));
+}
+
 
 /// One line describing what the tier adds, shown on the shop card.
 export function rarityDesc(rarity) {
@@ -139,9 +195,15 @@ export function rarityDesc(rarity) {
   return `${rarity.name}：${parts.join(' · ')}`;
 }
 
-export function weaponPrice(key, rarity, wave) {
+/// A card's price: the gun's base worth, its tier and the wave it is sold in,
+/// plus what the extra levels are worth. Rounded to fives so the shelf is easy
+/// to read at a glance.
+export function weaponPrice(key, rarity, wave, level = 1) {
   const base = WEAPON_BASE_PRICE[key] || 24;
-  const raw = base * rarity.price + Math.max(0, wave - 1) * 2;
+  const raw =
+    base * rarity.price +
+    Math.max(0, wave - 1) * 1.5 +
+    (Math.max(1, level) - 1) * 6;
   return Math.max(15, Math.round(raw / 5) * 5);
 }
 

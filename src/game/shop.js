@@ -1,14 +1,22 @@
-// What the between-wave shop stocks: three odd trinkets on the top shelf and
-// two weapon cards under them, plus a paid refresh. Weapons no longer drop in
-// the arena — they are bought here.
+// What the between-wave shop stocks: five trinkets on the top shelf and four
+// weapon cards under them, plus a paid refresh. Every card's quality is rolled
+// from the wave's curve, so a deep run is offered real upgrades instead of a
+// rack of white guns.
 
 import { ITEM_POOL, itemPrice } from './passives.js';
 import { WEAPONS, WEAPON_SLOTS } from './weapons.js';
-import { rollWeaponRarity, rarityDesc, weaponName, weaponPrice } from './rarities.js';
+import {
+  rollWeaponRarity,
+  rarityDesc,
+  shelfFloor,
+  weaponLevel,
+  weaponName,
+  weaponPrice
+} from './rarities.js';
 
 export const SHOP_REFRESH_COST = 5;
-export const ITEM_SLOTS = 3;
-export const WEAPON_OFFERS = 2;
+export const ITEM_SLOTS = 5;
+export const WEAPON_OFFERS = 4;
 export const SHOP_SLOTS = ITEM_SLOTS + WEAPON_OFFERS;
 
 function rollItems(wave, stacks, count) {
@@ -45,7 +53,14 @@ function rollItems(wave, stacks, count) {
 
   return chosen.map((def) => {
     const have = stacks[def.key] || 0;
-    const level = Math.min(def.max || 1, have + 1);
+    const max = def.max || 1;
+    const rarity = rollWeaponRarity(wave);
+
+    // A blue-or-better trinket card hands over two stacks at once: an honest
+    // upgrade at the point where one more copy of a flat item is worth little.
+    const bonus = rarity.rank >= 2 ? 2 : 1;
+    const take = Math.max(1, Math.min(max - have, bonus));
+    const level = Math.min(max, have + take);
 
     return {
       kind: 'item',
@@ -56,8 +71,13 @@ function rollItems(wave, stacks, count) {
       color: def.color,
       hex: def.hex,
       active: !!def.active,
+      rarity: rarity.key,
+      rarityName: rarity.name,
+      rank: rarity.rank,
+      stacks: take,
       level,
-      price: itemPrice(def, have, wave),
+      // Two stacks in one card are cheaper than buying the copies one by one.
+      price: Math.round(itemPrice(def, have, wave) * (1 + 0.6 * (take - 1))),
       sold: false
     };
   });
@@ -65,7 +85,7 @@ function rollItems(wave, stacks, count) {
 
 /// Weapon cards on the shelf. Duplicates are allowed, so two of the same gun at
 /// the same tier can be collected and merged in the shop.
-function rollWeapon(wave, loadout) {
+function rollWeapon(wave, loadout, minRank = 0) {
   const weapons = loadout || [];
   const hasFreeSlot = weapons.length < WEAPON_SLOTS;
 
@@ -79,7 +99,8 @@ function rollWeapon(wave, loadout) {
 
   const key = pool[Math.floor(Math.random() * pool.length)];
   const def = WEAPONS[key];
-  const rarity = rollWeaponRarity(wave);
+  const rarity = rollWeaponRarity(wave, minRank);
+  const level = weaponLevel(wave);
 
   return {
     kind: 'weapon',
@@ -92,8 +113,8 @@ function rollWeapon(wave, loadout) {
     emoji: def.emoji,
     color: rarity.color,
     hex: rarity.hex,
-    level: 1,
-    price: weaponPrice(key, rarity, wave),
+    level,
+    price: weaponPrice(key, rarity, wave, level),
     sold: false
   };
 }
@@ -101,7 +122,7 @@ function rollWeapon(wave, loadout) {
 /// Rolls a shelf for this wave. `owned` is the run's item table, `loadout` the
 /// carried weapons, so nothing at its cap or impossible to take is offered. The
 /// trinkets come first and the weapons after them, which is the order the shop
-/// draws them in: items on the top shelf, weapons on the bottom one.
+/// draws them in: items on the top shelf, weapons below them.
 export function rollShopItems(wave, owned, loadout) {
   const stacks = owned || {};
 
@@ -111,7 +132,23 @@ export function rollShopItems(wave, owned, loadout) {
     if (weapon) weapons.push(weapon);
   }
 
-  const items = rollItems(wave, stacks, weapons.length > 0 ? ITEM_SLOTS : SHOP_SLOTS);
+  // From wave five on, every visit is guaranteed one gun at the shelf's floor:
+  // a blue card at five, a purple at nine, a gold at fourteen.
+  const floor = shelfFloor(wave);
+  if (floor > 0 && weapons.length > 0) {
+    const best = weapons.reduce((top, weapon) => Math.max(top, weapon.rank), -1);
+    if (best < floor) {
+      const slot = Math.floor(Math.random() * weapons.length);
+      const forced = rollWeapon(wave, loadout, floor);
+      if (forced) weapons[slot] = forced;
+    }
+  }
+
+  const items = rollItems(
+    wave,
+    stacks,
+    weapons.length > 0 ? ITEM_SLOTS : SHOP_SLOTS
+  );
 
   return items.concat(weapons);
 }

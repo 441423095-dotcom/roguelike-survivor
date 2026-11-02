@@ -3221,8 +3221,14 @@ export class GameScene extends Phaser.Scene {
     if (this.state.coins < item.price) return false;
 
     if (item.kind === 'item') {
-      // At its stack cap, or not an item the run knows: nothing to sell.
-      if (!this.addItem(item.key)) return false;
+      // A blue-or-better card carries two stacks; apply everything it promised.
+      const stacks = Math.max(1, item.stacks || 1);
+      let applied = 0;
+      for (let i = 0; i < stacks; i++) {
+        if (!this.addItem(item.key)) break;
+        applied += 1;
+      }
+      if (applied === 0) return false;
     } else if (item.kind === 'weapon') {
       const mergeIndex = this.weaponMergeIndex(item.key, item.rarity);
       if (mergeIndex >= 0) this.mergeWeaponRarity(mergeIndex);
@@ -3733,7 +3739,7 @@ export class GameScene extends Phaser.Scene {
 
     this.state.weapons[slotIndex] = {
       key: item.key,
-      level: 1,
+      level: item.level || 1,
       rarity: item.rarity || 'common'
     };
 
@@ -3852,7 +3858,7 @@ export class GameScene extends Phaser.Scene {
 
     this.state.weapons.push({
       key: item.key,
-      level: 1,
+      level: item.level || 1,
       rarity: item.rarity || 'common'
     });
 
