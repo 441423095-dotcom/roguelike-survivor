@@ -4,6 +4,7 @@
 import { BootScene } from './scenes/BootScene.js';
 import { TitleScene } from './scenes/TitleScene.js';
 import { CharacterScene } from './scenes/CharacterScene.js';
+import { DifficultyScene } from './scenes/DifficultyScene.js';
 import { AchievementScene } from './scenes/AchievementScene.js';
 import { BestiaryScene } from './scenes/BestiaryScene.js';
 import { GameScene } from './scenes/GameScene.js';
@@ -52,6 +53,7 @@ window.game = new Phaser.Game({
     BootScene,
     TitleScene,
     CharacterScene,
+    DifficultyScene,
     AchievementScene,
     BestiaryScene,
     GameScene,

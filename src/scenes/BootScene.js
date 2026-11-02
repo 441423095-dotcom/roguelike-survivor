@@ -42,7 +42,8 @@ export class BootScene extends Phaser.Scene {
       'crown',
       'coins',
       'infinity',
-      'book-open'
+      'book-open',
+      'flame'
     ]);
 
     this.scene.start('Title');

@@ -160,7 +160,7 @@ export class TitleScene extends Phaser.Scene {
 
   startRun() {
     haptic('tick');
-    this.scene.start('Character');
+    this.scene.start('Difficulty');
   }
 
   openAchievements() {

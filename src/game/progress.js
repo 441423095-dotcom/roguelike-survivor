@@ -1,51 +1,114 @@
-// What a run leaves behind between sessions: which character was picked, the
-// three best results, the banked kill count and the characters those numbers
-// have unlocked. Storage can be unavailable, so every access is guarded.
+// What a run leaves behind between sessions: which character and difficulty
+// were picked, the best results for each difficulty, the banked kill count and
+// the characters those numbers have unlocked. Storage can be unavailable, so
+// every access is guarded.
 
 import { CHARACTERS, DEFAULT_CHARACTER } from './characters.js';
+import { DEFAULT_DIFFICULTY, difficultyFor } from './difficulty.js';
 
 const KEY = 'meat-battle-progress';
+
+function blankBest() {
+  return { wave: 0, kills: 0, time: 0 };
+}
+
+function blankBests() {
+  return { normal: blankBest(), hard: blankBest() };
+}
 
 function blank() {
   return {
     character: DEFAULT_CHARACTER,
-    bestWave: 0,
-    bestKills: 0,
-    bestTime: 0,
+    difficulty: DEFAULT_DIFFICULTY,
+    bests: blankBests(),
     totalKills: 0,
     unlocked: []
+  };
+}
+
+function normaliseBest(value) {
+  return {
+    wave: Math.max(0, Number(value && value.wave) || 0),
+    kills: Math.max(0, Number(value && value.kills) || 0),
+    time: Math.max(0, Number(value && value.time) || 0)
+  };
+}
+
+/// Adds the convenience figures for whichever difficulty is selected.
+function withTotals(progress) {
+  const key = progress.difficulty === 'hard' ? 'hard' : DEFAULT_DIFFICULTY;
+  progress.difficulty = key;
+
+  const best = progress.bests[key];
+
+  return {
+    ...progress,
+    bestWave: best.wave,
+    bestKills: best.kills,
+    bestTime: best.time,
+    highestWave: Math.max(progress.bests.normal.wave, progress.bests.hard.wave),
+    difficultyName: difficultyFor(key).name
   };
 }
 
 export function loadProgress() {
   try {
     const raw = window.localStorage.getItem(KEY);
-    if (!raw) return blank();
+    if (!raw) return withTotals(blank());
 
     const data = JSON.parse(raw);
-    // Earlier saves called the best wave "highestWave"; keep reading that form.
-    const bestWave =
-      data.bestWave !== undefined
-        ? Number(data.bestWave) || 0
-        : Number(data.highestWave) || 0;
+    const stored = data.bests && typeof data.bests === 'object' ? data.bests : null;
 
-    return {
+    if (stored) {
+      return withTotals({
+        character:
+          typeof data.character === 'string' ? data.character : DEFAULT_CHARACTER,
+        difficulty: data.difficulty === 'hard' ? 'hard' : DEFAULT_DIFFICULTY,
+        bests: {
+          normal: normaliseBest(stored.normal),
+          hard: normaliseBest(stored.hard)
+        },
+        totalKills: Number(data.totalKills) || 0,
+        unlocked: Array.isArray(data.unlocked) ? data.unlocked : []
+      });
+    }
+
+    // Older saves kept a single set of bests, and an even older one called the
+    // best wave "highestWave": both become the normal-difficulty record.
+    const legacyWave = data.bestWave !== undefined ? data.bestWave : data.highestWave;
+
+    return withTotals({
       character:
         typeof data.character === 'string' ? data.character : DEFAULT_CHARACTER,
-      bestWave,
-      bestKills: Number(data.bestKills) || 0,
-      bestTime: Number(data.bestTime) || 0,
+      difficulty: DEFAULT_DIFFICULTY,
+      bests: {
+        normal: {
+          wave: Math.max(0, Number(legacyWave) || 0),
+          kills: Math.max(0, Number(data.bestKills) || 0),
+          time: Math.max(0, Number(data.bestTime) || 0)
+        },
+        hard: blankBest()
+      },
       totalKills: Number(data.totalKills) || 0,
       unlocked: Array.isArray(data.unlocked) ? data.unlocked : []
-    };
+    });
   } catch (error) {
-    return blank();
+    return withTotals(blank());
   }
 }
 
-function save(data) {
+function save(progress) {
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(data));
+    window.localStorage.setItem(
+      KEY,
+      JSON.stringify({
+        character: progress.character,
+        difficulty: progress.difficulty,
+        bests: progress.bests,
+        totalKills: progress.totalKills,
+        unlocked: progress.unlocked
+      })
+    );
   } catch (error) {
     // No storage: the run still plays, records just will not survive a reload.
   }
@@ -61,21 +124,34 @@ export function selectCharacter(key) {
   const progress = loadProgress();
   progress.character = key;
   save(progress);
-  return progress;
+  return loadProgress();
+}
+
+/// Remembers the difficulty for the next run; its records are kept apart from
+/// the other tier's.
+export function selectDifficulty(key) {
+  const progress = loadProgress();
+  progress.difficulty = key === 'hard' ? 'hard' : DEFAULT_DIFFICULTY;
+  save(progress);
+  return loadProgress();
 }
 
 // Adds every character whose condition is now met, and reports the new ones.
 function applyUnlocks(progress) {
   const newly = [];
+  const highestWave = Math.max(
+    progress.bests.normal.wave,
+    progress.bests.hard.wave
+  );
 
   for (const character of CHARACTERS) {
     const unlock = character.unlock;
     if (!unlock) continue;
-    if (progress.unlocked.indexOf(character.key) !== -1) continue;
+    if (progress.unlocked.includes(character.key)) continue;
 
     const done =
       unlock.type === 'wave'
-        ? progress.bestWave >= unlock.value
+        ? highestWave >= unlock.value
         : progress.totalKills >= unlock.value;
 
     if (done) {
@@ -88,9 +164,12 @@ function applyUnlocks(progress) {
 }
 
 /// Called whenever a wave begins, so reaching a deep enough wave unlocks.
-export function recordWave(wave) {
+export function recordWave(wave, difficulty) {
   const progress = loadProgress();
-  if (wave > progress.bestWave) progress.bestWave = wave;
+  const key = difficulty === 'hard' ? 'hard' : progress.difficulty;
+  const best = progress.bests[key];
+
+  if (wave > best.wave) best.wave = wave;
 
   const newly = applyUnlocks(progress);
   save(progress);
@@ -98,9 +177,11 @@ export function recordWave(wave) {
 }
 
 /// Called once when a run ends. Banks the kills, updates whichever bests were
-/// beaten and reports them so the summary can call them out.
-export function recordRun({ wave, kills, time }) {
+/// beaten for this difficulty and reports them so the summary can call them out.
+export function recordRun({ wave, kills, time, difficulty }) {
   const progress = loadProgress();
+  const key = difficulty === 'hard' ? 'hard' : progress.difficulty;
+  const best = progress.bests[key];
 
   const runWave = Math.max(0, Math.floor(wave || 0));
   const runKills = Math.max(0, Math.floor(kills || 0));
@@ -109,26 +190,26 @@ export function recordRun({ wave, kills, time }) {
   progress.totalKills += runKills;
 
   const records = {
-    wave: runWave > progress.bestWave,
-    kills: runKills > progress.bestKills,
-    time: runTime > progress.bestTime
+    wave: runWave > best.wave,
+    kills: runKills > best.kills,
+    time: runTime > best.time
   };
 
-  if (records.wave) progress.bestWave = runWave;
-  if (records.kills) progress.bestKills = runKills;
-  if (records.time) progress.bestTime = runTime;
+  if (records.wave) best.wave = runWave;
+  if (records.kills) best.kills = runKills;
+  if (records.time) best.time = runTime;
 
   const newly = applyUnlocks(progress);
   save(progress);
 
-  return { records, newly, best: { ...progress } };
+  return { records, newly, best: loadProgress() };
 }
 
 /// Wipes every saved number, including unlocks — the archive starts over.
 export function clearProgress() {
   const cleared = blank();
   save(cleared);
-  return cleared;
+  return loadProgress();
 }
 
 export function formatDuration(seconds) {

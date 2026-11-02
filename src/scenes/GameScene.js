@@ -26,6 +26,7 @@ import {
 } from '../game/weapons.js';
 import { getCharacter } from '../game/characters.js';
 import { loadProgress, recordWave, recordRun } from '../game/progress.js';
+import { difficultyFor } from '../game/difficulty.js';
 import { TEXT_RESOLUTION, sharpenText } from '../ui/text.js';
 import {
   ENEMY_TYPES,
@@ -53,7 +54,10 @@ export class GameScene extends Phaser.Scene {
       this.scale.gameSize.height
     );
 
-    this.character = getCharacter(loadProgress().character);
+    const saved = loadProgress();
+    this.character = getCharacter(saved.character);
+
+    this.difficulty = difficultyFor(saved.difficulty);
 
     this.dead = [];
     this.pickups = [];
@@ -1795,8 +1799,9 @@ export class GameScene extends Phaser.Scene {
     // affordable even though there is less to kill.
     const coinBoost = this.state.wave <= 5 ? 1.6 : 1;
     if (Math.random() < Math.min(1, coinChance * coinBoost)) {
-      // 生锈的硬币 makes every coin on the floor worth two.
-      const value = this.state.coinMult || 1;
+      // 生锈的硬币 doubles what every corpse pays out, and a hard run pays a
+      // little more on top of that.
+      const value = (this.state.coinMult || 1) * this.difficulty.coin;
       for (let i = 0; i < coins; i++) {
         this.dropCoin(enemy.x, enemy.y, 8 + i * 4, value);
       }
@@ -2016,7 +2021,7 @@ export class GameScene extends Phaser.Scene {
     );
 
     // Reaching a deep enough wave is what unlocks the hidden characters.
-    const unlocked = recordWave(wave);
+    const unlocked = recordWave(wave, this.difficulty.key);
     for (const character of unlocked) {
       haptic('level_up');
       this.notify(
@@ -2226,7 +2231,10 @@ export class GameScene extends Phaser.Scene {
     // enemies.js so the late run cannot quietly drift out of control.
     const scale = waveScaling(wave);
 
-    const hp = Math.max(1, Math.round(def.hp * scale.hp));
+    const hp = Math.max(
+      1,
+      Math.round(def.hp * scale.hp * this.difficulty.hp)
+    );
     enemy.setData('hp', hp);
     enemy.setData('maxHp', hp);
 
@@ -2235,7 +2243,10 @@ export class GameScene extends Phaser.Scene {
     const jitter =
       def.behaviour === 'boss' ? 1 : Phaser.Math.FloatBetween(0.85, 1.25);
     enemy.setData('speed', def.speed * scale.speed * jitter);
-    enemy.setData('damage', Math.round(def.damage * scale.damage));
+    enemy.setData(
+      'damage',
+      Math.round(def.damage * scale.damage * this.difficulty.damage)
+    );
 
     // Steering: how far ahead of the player this one aims, plus a slow weave so
     // it never runs in a dead straight line.
@@ -2254,7 +2265,10 @@ export class GameScene extends Phaser.Scene {
       enemy.setData('keepNear', def.keepNear || 150);
       enemy.setData('keepFar', def.keepFar || 250);
       enemy.setData('shootInterval', def.shootInterval || 1900);
-      enemy.setData('shotDamage', Math.round((def.shotDamage || 7) * scale.damage));
+      enemy.setData(
+        'shotDamage',
+        Math.round((def.shotDamage || 7) * scale.damage * this.difficulty.damage)
+      );
       enemy.setData(
         'shootTimer',
         (def.shootInterval || 1900) * Phaser.Math.FloatBetween(0.5, 1.2)
@@ -3019,7 +3033,8 @@ export class GameScene extends Phaser.Scene {
       result = recordRun({
         wave: this.state.wave,
         kills: this.state.kills,
-        time: this.state.runTime
+        time: this.state.runTime,
+        difficulty: this.difficulty.key
       });
     } catch (error) {
       console.warn('Saving the run failed:', error);
