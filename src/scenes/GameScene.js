@@ -104,10 +104,10 @@ export class GameScene extends Phaser.Scene {
     this.facing = 0;
 
     this.joyDir = new Phaser.Math.Vector2(0, 0);
-    // Where the grab started, relative to the character: plain numbers, so the
-    // per-frame follow never allocates anything.
-    this.dragOffsetX = 0;
-    this.dragOffsetY = 0;
+    // Where the drag started: plain numbers, so the per-frame steering never
+    // allocates anything.
+    this.joyOriginX = 0;
+    this.joyOriginY = 0;
     this.joyPointer = null;
     this.lastDir = new Phaser.Math.Vector2(1, 0);
     this.dashDir = new Phaser.Math.Vector2(1, 0);
@@ -438,11 +438,11 @@ export class GameScene extends Phaser.Scene {
 
     if (this.joyPointer !== null) return;
 
-    // Grab anywhere: remember where the character sits relative to the finger
-    // and let the frame loop drag it there directly.
+    // Grab anywhere: the drag origin is where the thumb landed, and steering
+    // is the direction from there to the live pointer.
     this.joyPointer = pointer;
-    this.dragOffsetX = this.player.x - pointer.x;
-    this.dragOffsetY = this.player.y - pointer.y;
+    this.joyOriginX = pointer.x;
+    this.joyOriginY = pointer.y;
   }
 
   onPointerUp(pointer) {
@@ -457,8 +457,8 @@ export class GameScene extends Phaser.Scene {
 
   releaseJoystick() {
     this.joyPointer = null;
-    this.dragOffsetX = 0;
-    this.dragOffsetY = 0;
+    this.joyOriginX = 0;
+    this.joyOriginY = 0;
     this.joyDir.set(0, 0);
     if (this.player && this.player.body) this.player.body.velocity.set(0, 0);
   }
@@ -799,52 +799,33 @@ export class GameScene extends Phaser.Scene {
     this.shadow.setPosition(this.player.x, this.player.y + 15);
   }
 
-  /// Absolute finger follow. The position is read straight off the live pointer
-  /// every frame and the character is put there — no lerp, no velocity ramp, no
-  /// per-move maths and no effects. The only work is one clamp and one sqrt to
-  /// keep `joyDir` up to date for the flash.
+  /// Steering, the simple way: the direction from where the drag started to
+  /// where the finger is now, at the character's own speed. The pointer is read
+  /// straight off the live input every frame (no pointermove handler, no object
+  /// allocations, one sqrt, no lerp, no effects).
   updateMovement(time) {
     const p = this.joyPointer;
 
     if (p && p.isDown) {
-      const margin = 16;
-      let nx = p.x + this.dragOffsetX;
-      let ny = p.y + this.dragOffsetY;
-
-      if (nx < margin) nx = margin;
-      else if (nx > this.layout.width - margin) nx = this.layout.width - margin;
-
-      const top = (this.safeTop || 0) + margin;
-      const bottom = this.layout.height - margin;
-      if (ny < top) ny = top;
-      else if (ny > bottom) ny = bottom;
-
-      const dx = nx - this.player.x;
-      const dy = ny - this.player.y;
+      const dx = p.x - this.joyOriginX;
+      const dy = p.y - this.joyOriginY;
       const distSq = dx * dx + dy * dy;
-      const stepCap = this.state.speed * 0.06;
 
-      if (distSq > 0.25) {
+      if (distSq > 64) {
         const inv = 1 / Math.sqrt(distSq);
         this.joyDir.set(dx * inv, dy * inv);
         this.lastDir.copy(this.joyDir);
-
-        // Glued to the finger, with one generous cap so a violent swipe cannot
-        // teleport the character across the arena in a single frame.
-        if (distSq > stepCap * stepCap) {
-          nx = this.player.x + dx * inv * stepCap;
-          ny = this.player.y + dy * inv * stepCap;
-        }
+        this.player.setVelocity(
+          this.joyDir.x * this.state.speed,
+          this.joyDir.y * this.state.speed
+        );
       } else {
         this.joyDir.set(0, 0);
-        nx = this.player.x;
-        ny = this.player.y;
+        this.player.setVelocity(0, 0);
       }
-
-      if (nx !== this.player.x || ny !== this.player.y) this.player.setPosition(nx, ny);
-      if (this.player.body) this.player.body.velocity.set(0, 0);
-    } else if (this.joyDir.x !== 0 || this.joyDir.y !== 0) {
-      this.joyDir.set(0, 0);
+    } else {
+      if (this.joyDir.x !== 0 || this.joyDir.y !== 0) this.joyDir.set(0, 0);
+      this.player.setVelocity(0, 0);
     }
 
     // The invulnerability flicker only touches alpha while it is actually on.
