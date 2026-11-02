@@ -15,7 +15,7 @@ import {
 } from '../game/passives.js';
 import { Sfx, setMusicTrack, duckMusic } from '../game/audio.js';
 import { xpForLevel, coinBudgetForWave } from '../game/loot.js';
-import { rarityColor } from '../game/rarities.js';
+import { rarityColor, rarityFor } from '../game/rarities.js';
 import { nextRarity, mergeCost } from '../game/rarities.js';
 import { recordAchievement } from '../game/achievements.js';
 import {
@@ -142,6 +142,19 @@ export class GameScene extends Phaser.Scene {
       chainKill: 0,
       runTime: 0
     };
+    // The starting stats before any card or item touches them. Selling an item
+    // rebuilds the run's numbers from this snapshot.
+    this.baseRun = {
+      hp: this.state.hp,
+      maxHp: this.state.maxHp,
+      speed: this.state.speed,
+      damage: this.state.damage,
+      fireInterval: this.state.fireInterval,
+      range: this.state.range,
+      bulletSpeed: this.state.bulletSpeed,
+      pickupRadius: this.state.pickupRadius
+    };
+
     this.stacks = {};
 
     // Everything bought in the shop, passive and active, keyed by item and
@@ -2532,17 +2545,21 @@ export class GameScene extends Phaser.Scene {
       if ((this.items[item.key] || 0) >= (def.max || 1)) return false;
     }
 
-    // A weapon needs a free slot; duplicates are allowed, and two of the same
-    // gun at the same rarity can be merged in the shop.
+    // A weapon needs room: either a duplicate to fuse with, or a free slot.
     if (item.kind === 'weapon') {
-      if (this.state.weapons.length >= WEAPON_SLOTS) return false;
+      const mergeIndex = this.weaponMergeIndex(item.key, item.rarity);
+      if (mergeIndex < 0 && this.state.weapons.length >= WEAPON_SLOTS) {
+        return false;
+      }
     }
 
     this.state.coins -= item.price;
     item.sold = true;
 
     if (item.kind === 'weapon') {
-      this.buyWeapon(item);
+      const mergeIndex = this.weaponMergeIndex(item.key, item.rarity);
+      if (mergeIndex >= 0) this.mergeWeaponRarity(mergeIndex);
+      else this.buyWeapon(item);
     } else if (item.kind === 'item') {
       this.addItem(item.key);
     } else if (item.kind === 'upgrade') {
@@ -2973,6 +2990,159 @@ export class GameScene extends Phaser.Scene {
     this.weaponChoice = null;
     if (!this.running) return;
     this.scene.resume();
+  }
+
+  /// The shop asks these three things before it charges for a weapon.
+  weaponMergeIndex(key, rarity) {
+    return this.state.weapons.findIndex(
+      (slot) => slot.key === key && (slot.rarity || 'common') === rarity
+    );
+  }
+
+  needsWeaponSlot(key, rarity) {
+    if (this.weaponMergeIndex(key, rarity) >= 0) return false;
+    return this.state.weapons.length >= WEAPON_SLOTS;
+  }
+
+  /// A bought duplicate fuses into the gun already carried: same slot, next
+  /// rarity, one more level.
+  mergeWeaponRarity(index) {
+    const slot = this.state.weapons[index];
+    if (!slot) return false;
+
+    const next = nextRarity(slot.rarity || 'common');
+    if (!next) return false;
+
+    slot.rarity = next.key;
+    slot.level = Math.min(5, (slot.level || 1) + 1);
+    this.cooldowns = [];
+    this.drawWeaponSlots();
+    this.flashSlot(index);
+    return true;
+  }
+
+  /// Swaps one carried gun for the weapon just paid for, freeing old for new.
+  replaceWeaponSlot(slotIndex, shopIndex) {
+    const item = this.shopItems[shopIndex];
+    if (!item || item.sold) return false;
+
+    const slot = this.state.weapons[slotIndex];
+    if (!slot) return false;
+    if (this.state.coins < item.price) return false;
+
+    this.state.coins -= item.price;
+    item.sold = true;
+
+    this.state.weapons[slotIndex] = {
+      key: item.key,
+      level: 1,
+      rarity: item.rarity || 'common'
+    };
+
+    this.cooldowns = [];
+    this.drawWeaponSlots();
+    this.flashSlot(slotIndex);
+    return true;
+  }
+
+  weaponSellPrice(slot) {
+    const def = weaponDef(slot);
+    if (!def) return 0;
+
+    const rarity = rarityFor(slot.rarity);
+    return 8 + rarity.rank * 8 + Math.max(0, (slot.level || 1) - 1) * 4;
+  }
+
+  /// Sells a carried gun for part of what it is worth, freeing its slot.
+  sellWeapon(index) {
+    const slot = this.state.weapons[index];
+    if (!slot) return 0;
+    if (this.state.weapons.length <= 1) return 0;
+
+    const refund = this.weaponSellPrice(slot);
+    this.state.coins += refund;
+    this.state.weapons.splice(index, 1);
+    this.cooldowns = [];
+    this.drawWeaponSlots();
+    return refund;
+  }
+
+  itemSellPrice(key) {
+    const def = ITEM_BY_KEY[key];
+    if (!def) return 0;
+    return 10;
+  }
+
+  /// Sells one stack of an item. The run's stats are replayed from the base
+  /// snapshot afterwards, so the sold bonus really disappears.
+  sellItem(key) {
+    const def = ITEM_BY_KEY[key];
+    const stacks = this.items[key] || 0;
+    if (!def || stacks <= 0) return 0;
+
+    const refund = this.itemSellPrice(key);
+    this.state.coins += refund;
+
+    if (stacks <= 1) delete this.items[key];
+    else this.items[key] = stacks - 1;
+
+    this.rebuildRunStats();
+    this.drawItemBar();
+    this.syncCompanions();
+    return refund;
+  }
+
+  /// Rebuilds every stat from the starting snapshot, then replays the level-up
+  /// cards and the items still owned. Used when an item is sold.
+  rebuildRunStats() {
+    const s = this.state;
+    const base = this.baseRun;
+    if (!base) return;
+
+    s.maxHp = base.maxHp;
+    s.speed = base.speed;
+    s.damage = base.damage;
+    s.fireInterval = base.fireInterval;
+    s.range = base.range;
+    s.bulletSpeed = base.bulletSpeed;
+    s.pickupRadius = base.pickupRadius;
+
+    s.regen = 0;
+    s.armor = 0;
+    s.lifesteal = 0;
+    s.critChance = 0;
+    s.projectiles = 1;
+    s.pierceBonus = 0;
+    s.slowOnHit = 0;
+    s.outRegen = 0;
+    s.styleBonus = { bullet: 1, energy: 1, explosive: 1, blade: 1 };
+    s.weaponSynergy = 0;
+    s.splashBonus = 0;
+    s.slowBonus = 0;
+    s.chainKill = 0;
+    s.coinCap = Number.POSITIVE_INFINITY;
+    s.coinMult = 1;
+
+    for (const key of Object.keys(this.stacks)) {
+      const def = UPGRADE_BY_KEY[key];
+      if (!def) continue;
+      for (let i = 0; i < this.stacks[key]; i++) def.apply(s);
+    }
+
+    for (const key of Object.keys(this.items)) {
+      const def = ITEM_BY_KEY[key];
+      if (!def || !def.apply) continue;
+      for (let i = 0; i < this.items[key]; i++) def.apply(s);
+    }
+
+    if (this.items.rustycoin) {
+      s.coinCap = 50;
+      s.coinMult = 2;
+      s.coins = Math.min(s.coins, 50);
+    }
+
+    this.clampPlayerStats();
+    s.hp = Math.min(s.hp, s.maxHp);
   }
 
   /// Equips the weapon bought from the wave shop. Duplicates are kept as their
