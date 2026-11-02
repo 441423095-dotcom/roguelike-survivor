@@ -7,6 +7,7 @@ import { COLORS, FONT } from '../ui/style.js';
 import { makeButton } from '../ui/widgets.js';
 import { TEXT_RESOLUTION, sharpenText } from '../ui/text.js';
 import { haptic } from '../haptics.js';
+import { DPR, applyCameraZoom, viewSize } from '../ui/view.js';
 import { bestiaryState } from '../game/bestiary.js';
 
 export class BestiaryScene extends Phaser.Scene {
@@ -15,6 +16,7 @@ export class BestiaryScene extends Phaser.Scene {
   }
 
   create() {
+    applyCameraZoom(this);
     this.scrollY = 0;
     this.maxScroll = 0;
     this.expanded = null;
@@ -53,8 +55,8 @@ export class BestiaryScene extends Phaser.Scene {
   }
 
   build() {
-    const W = this.scale.gameSize.width;
-    const H = this.scale.gameSize.height;
+    const W = viewSize(this).width;
+    const H = viewSize(this).height;
     const L = computeLayout(W, H);
     const s = L.uiScale;
 
@@ -272,7 +274,7 @@ export class BestiaryScene extends Phaser.Scene {
   /// Places every card at its scrolled position and hides the ones outside the
   /// visible strip so nothing spills over the title or the buttons.
   applyScroll() {
-    const W = this.scale.gameSize.width;
+    const W = viewSize(this).width;
 
     for (const row of this.rows) {
       const y = row.centre + this.scrollY;
@@ -297,16 +299,16 @@ export class BestiaryScene extends Phaser.Scene {
   onDragStart(pointer) {
     this.dragging = true;
     this.dragDistance = 0;
-    this.dragStartY = pointer.y;
+    this.dragStartY = pointer.y / DPR;
     this.dragStartScroll = this.scrollY;
   }
 
   onDragMove(pointer) {
     if (!this.dragging) return;
 
-    const delta = pointer.y - this.dragStartY;
+    const delta = pointer.y / DPR - this.dragStartY;
     this.dragDistance += Math.abs(delta);
-    this.dragStartY = pointer.y;
+    this.dragStartY = pointer.y / DPR;
 
     if (this.maxScroll <= 0) return;
 

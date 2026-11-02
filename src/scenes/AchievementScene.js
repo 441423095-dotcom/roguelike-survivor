@@ -6,6 +6,7 @@ import { COLORS, FONT } from '../ui/style.js';
 import { makeButton } from '../ui/widgets.js';
 import { TEXT_RESOLUTION, sharpenText } from '../ui/text.js';
 import { haptic } from '../haptics.js';
+import { DPR, applyCameraZoom, viewSize } from '../ui/view.js';
 import { achievementState, claimReward } from '../game/achievements.js';
 import { addShards } from '../game/meta.js';
 import { Sfx } from '../game/audio.js';
@@ -16,6 +17,7 @@ export class AchievementScene extends Phaser.Scene {
   }
 
   create() {
+    applyCameraZoom(this);
     this.scrollY = 0;
     this.maxScroll = 0;
     this.dragging = false;
@@ -44,8 +46,8 @@ export class AchievementScene extends Phaser.Scene {
   }
 
   build() {
-    const W = this.scale.gameSize.width;
-    const H = this.scale.gameSize.height;
+    const W = viewSize(this).width;
+    const H = viewSize(this).height;
     const L = computeLayout(W, H);
     const s = L.uiScale;
 
@@ -247,7 +249,7 @@ export class AchievementScene extends Phaser.Scene {
   /// Places every row at its scrolled position and hides the ones outside the
   /// visible strip, so the list never spills over the title or the button.
   applyScroll() {
-    const W = this.scale.gameSize.width;
+    const W = viewSize(this).width;
     const step = this.rowH + this.rowGap;
     const top = this.listTop;
 
@@ -266,15 +268,15 @@ export class AchievementScene extends Phaser.Scene {
   onDragStart(pointer) {
     this.dragging = true;
     this.dragDistance = 0;
-    this.dragStartY = pointer.y;
+    this.dragStartY = pointer.y / DPR;
   }
 
   onDragMove(pointer) {
     if (!this.dragging) return;
 
-    const delta = pointer.y - this.dragStartY;
+    const delta = pointer.y / DPR - this.dragStartY;
     this.dragDistance += Math.abs(delta);
-    this.dragStartY = pointer.y;
+    this.dragStartY = pointer.y / DPR;
 
     if (this.maxScroll <= 0) return;
 
@@ -303,8 +305,8 @@ export class AchievementScene extends Phaser.Scene {
   }
 
   showToast(amount) {
-    const W = this.scale.gameSize.width;
-    const H = this.scale.gameSize.height;
+    const W = viewSize(this).width;
+    const H = viewSize(this).height;
     const s = Math.min(1.6, Math.max(0.9, W / 420));
 
     const label = this.add

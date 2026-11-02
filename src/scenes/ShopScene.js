@@ -14,6 +14,7 @@ import { WEAPONS, WEAPON_SLOTS, weaponDef, weaponStats } from '../game/weapons.j
 import { nextRarity, rarityFor, weaponName } from '../game/rarities.js';
 import { ITEM_BY_KEY } from '../game/passives.js';
 import { openStatsPanel } from '../ui/statsPanel.js';
+import { applyCameraZoom, viewSize } from '../ui/view.js';
 
 // The shop's neon accents: cyan for structure, magenta for danger accents and a
 // hot yellow reserved for money.
@@ -38,6 +39,7 @@ export class ShopScene extends Phaser.Scene {
   }
 
   create() {
+    applyCameraZoom(this);
     this.build();
 
     this.scale.on('resize', this.onResize, this);
@@ -113,8 +115,8 @@ export class ShopScene extends Phaser.Scene {
   }
 
   build() {
-    const W = this.scale.gameSize.width;
-    const H = this.scale.gameSize.height;
+    const W = viewSize(this).width;
+    const H = viewSize(this).height;
     const L = computeLayout(W, H);
     const s = L.uiScale;
     const items = this.stock();
@@ -714,8 +716,8 @@ export class ShopScene extends Phaser.Scene {
   openSell(target) {
     this.sellTarget = target;
 
-    const W = this.scale.gameSize.width;
-    const H = this.scale.gameSize.height;
+    const W = viewSize(this).width;
+    const H = viewSize(this).height;
     const s = computeLayout(W, H).uiScale;
 
     const panelW = Math.min(W - 60, 320 * s);
@@ -1274,8 +1276,8 @@ export class ShopScene extends Phaser.Scene {
 
     this.detailIndex = index;
 
-    const W = this.scale.gameSize.width;
-    const H = this.scale.gameSize.height;
+    const W = viewSize(this).width;
+    const H = viewSize(this).height;
     const s = computeLayout(W, H).uiScale;
     const rarity = rarityFor(item.rarity || 'common');
 
@@ -1460,8 +1462,8 @@ export class ShopScene extends Phaser.Scene {
   /// A short line so a tap that does not go through always says why instead of
   /// looking dead.
   toast(text) {
-    const W = this.scale.gameSize.width;
-    const H = this.scale.gameSize.height;
+    const W = viewSize(this).width;
+    const H = viewSize(this).height;
     const s = computeLayout(W, H).uiScale;
 
     const label = this.add

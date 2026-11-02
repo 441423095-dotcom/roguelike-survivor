@@ -4,6 +4,7 @@ import { computeLayout } from '../ui/layout.js';
 import { COLORS, FONT } from '../ui/style.js';
 import { makeButton } from '../ui/widgets.js';
 import { sharpenText } from '../ui/text.js';
+import { applyCameraZoom, viewSize } from '../ui/view.js';
 import { formatDuration } from '../game/progress.js';
 import { ENDLESS_FROM, isEndlessWave } from '../game/enemies.js';
 
@@ -20,6 +21,7 @@ export class GameOverScene extends Phaser.Scene {
   }
 
   create() {
+    applyCameraZoom(this);
     this.build();
 
     this.scale.on('resize', this.onResize, this);
@@ -35,8 +37,8 @@ export class GameOverScene extends Phaser.Scene {
   }
 
   build() {
-    const W = this.scale.gameSize.width;
-    const H = this.scale.gameSize.height;
+    const W = viewSize(this).width;
+    const H = viewSize(this).height;
     const L = computeLayout(W, H);
     const s = L.uiScale;
 

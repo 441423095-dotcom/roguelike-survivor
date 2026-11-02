@@ -9,6 +9,7 @@ import { computeLayout } from './layout.js';
 import { COLORS, FONT } from './style.js';
 import { makeButton } from './widgets.js';
 import { sharpenText } from './text.js';
+import { viewSize } from './view.js';
 import { haptic } from '../haptics.js';
 
 /// A percentage change of `value` against `from`, or an em dash when the run has
@@ -57,8 +58,8 @@ export function openStatsPanel(scene) {
   const run = scene.scene.get('Game');
   if (!run || !run.state) return null;
 
-  const W = scene.scale.gameSize.width;
-  const H = scene.scale.gameSize.height;
+  const W = viewSize(scene).width;
+  const H = viewSize(scene).height;
   const s = computeLayout(W, H).uiScale;
 
   const items = [];

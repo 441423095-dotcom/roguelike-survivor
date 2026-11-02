@@ -9,6 +9,7 @@ import { sharpenText } from '../ui/text.js';
 import { haptic } from '../haptics.js';
 import { initAudio, startMusic, Sfx } from '../game/audio.js';
 import { openStatsPanel } from '../ui/statsPanel.js';
+import { applyCameraZoom, viewSize } from '../ui/view.js';
 
 export class HudScene extends Phaser.Scene {
   constructor() {
@@ -16,9 +17,10 @@ export class HudScene extends Phaser.Scene {
   }
 
   create() {
+    applyCameraZoom(this);
     this.layout = computeLayout(
-      this.scale.gameSize.width,
-      this.scale.gameSize.height
+      viewSize(this).width,
+      viewSize(this).height
     );
     this.pauseShown = false;
     this.nextBeat = 0;
@@ -35,8 +37,9 @@ export class HudScene extends Phaser.Scene {
     });
   }
 
-  onResize(gameSize) {
-    this.layout = computeLayout(gameSize.width, gameSize.height);
+  onResize() {
+    const view = viewSize(this);
+    this.layout = computeLayout(view.width, view.height);
     this.tweens.killAll();
     this.children.removeAll(true);
     this.pauseShown = false;

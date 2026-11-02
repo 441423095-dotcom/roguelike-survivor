@@ -6,6 +6,7 @@ import { computeLayout } from '../ui/layout.js';
 import { COLORS, FONT } from '../ui/style.js';
 import { makeButton } from '../ui/widgets.js';
 import { sharpenText } from '../ui/text.js';
+import { applyCameraZoom, viewSize } from '../ui/view.js';
 import { haptic } from '../haptics.js';
 import { CHARACTERS, getCharacter } from '../game/characters.js';
 import { loadProgress, isUnlocked, selectCharacter } from '../game/progress.js';
@@ -17,6 +18,7 @@ export class CharacterScene extends Phaser.Scene {
   }
 
   create() {
+    applyCameraZoom(this);
     const progress = loadProgress();
     const saved = getCharacter(progress.character);
     if (!isUnlocked(progress, saved) && !metaCharacterUnlocked(saved.key)) {
@@ -42,8 +44,8 @@ export class CharacterScene extends Phaser.Scene {
   }
 
   build() {
-    const W = this.scale.gameSize.width;
-    const H = this.scale.gameSize.height;
+    const W = viewSize(this).width;
+    const H = viewSize(this).height;
     const L = computeLayout(W, H);
     const s = L.uiScale;
 

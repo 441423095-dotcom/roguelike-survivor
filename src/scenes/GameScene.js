@@ -54,6 +54,7 @@ import {
   isEndlessWave
 } from '../game/enemies.js';
 import { haptic } from '../haptics.js';
+import { DPR, applyCameraZoom, viewSize } from '../ui/view.js';
 
 const BLINK_COOLDOWN = 4000;
 const BLINK_INVULN = 900;
@@ -64,9 +65,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
+    applyCameraZoom(this);
     this.layout = computeLayout(
-      this.scale.gameSize.width,
-      this.scale.gameSize.height
+      viewSize(this).width,
+      viewSize(this).height
     );
 
     const saved = loadProgress();
@@ -566,8 +568,13 @@ export class GameScene extends Phaser.Scene {
     const button = this.layout.dash;
     if (
       button &&
-      Phaser.Math.Distance.Between(pointer.x, pointer.y, button.x, button.y) <
-        button.radius * 1.2
+      // The pointer is in canvas pixels; the layout above is in CSS pixels.
+      Phaser.Math.Distance.Between(
+        pointer.x / DPR,
+        pointer.y / DPR,
+        button.x,
+        button.y
+      ) < button.radius * 1.2
     ) {
       // Press feedback first, then the skill: a tap that finds the button on
       // cooldown still answers the thumb.
@@ -583,8 +590,8 @@ export class GameScene extends Phaser.Scene {
     // Grab anywhere: the drag origin is where the thumb landed, and steering
     // is the direction from there to the live pointer.
     this.joyPointer = pointer;
-    this.joyOriginX = pointer.x;
-    this.joyOriginY = pointer.y;
+    this.joyOriginX = pointer.x / DPR;
+    this.joyOriginY = pointer.y / DPR;
   }
 
   onPointerUp(pointer) {
@@ -958,8 +965,12 @@ export class GameScene extends Phaser.Scene {
     const p = this.joyPointer;
 
     if (p && p.isDown) {
-      const dx = p.x - this.joyOriginX;
-      const dy = p.y - this.joyOriginY;
+      // The pointer arrives in canvas pixels; the thresholds below are the CSS
+      // distances a thumb actually travels.
+      const px = p.x / DPR;
+      const py = p.y / DPR;
+      const dx = px - this.joyOriginX;
+      const dy = py - this.joyOriginY;
       const distSq = dx * dx + dy * dy;
 
       // 4px dead zone: the old 8px felt like the character was waiting for you.
@@ -978,8 +989,8 @@ export class GameScene extends Phaser.Scene {
         // of demanding ever-longer swipes.
         const maxDrag = 120;
         if (dist > maxDrag) {
-          this.joyOriginX = p.x - dx * inv * maxDrag;
-          this.joyOriginY = p.y - dy * inv * maxDrag;
+          this.joyOriginX = px - dx * inv * maxDrag;
+          this.joyOriginY = py - dy * inv * maxDrag;
         }
       } else {
         this.joyDir.set(0, 0);
@@ -4345,8 +4356,9 @@ export class GameScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- resize
 
-  onResize(gameSize) {
-    this.layout = computeLayout(gameSize.width, gameSize.height);
+  onResize() {
+    const view = viewSize(this);
+    this.layout = computeLayout(view.width, view.height);
     const field = this.layout.field;
 
     this.floor.setSize(field.width, field.height);

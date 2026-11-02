@@ -6,6 +6,7 @@ import { computeLayout } from '../ui/layout.js';
 import { COLORS, FONT } from '../ui/style.js';
 import { makeButton } from '../ui/widgets.js';
 import { sharpenText } from '../ui/text.js';
+import { applyCameraZoom, viewSize } from '../ui/view.js';
 import { haptic } from '../haptics.js';
 import { Sfx } from '../game/audio.js';
 
@@ -22,6 +23,7 @@ export class WeaponScene extends Phaser.Scene {
   }
 
   create() {
+    applyCameraZoom(this);
     this.build();
     this.scale.on('resize', this.onResize, this);
     this.events.once('shutdown', () => {
@@ -59,8 +61,8 @@ export class WeaponScene extends Phaser.Scene {
   }
 
   build() {
-    const W = this.scale.gameSize.width;
-    const H = this.scale.gameSize.height;
+    const W = viewSize(this).width;
+    const H = viewSize(this).height;
     const L = computeLayout(W, H);
     const s = L.uiScale;
 

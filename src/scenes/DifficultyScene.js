@@ -6,6 +6,7 @@ import { COLORS, FONT } from '../ui/style.js';
 import { makeButton } from '../ui/widgets.js';
 import { TEXT_RESOLUTION, sharpenText } from '../ui/text.js';
 import { haptic } from '../haptics.js';
+import { applyCameraZoom, viewSize } from '../ui/view.js';
 import { DIFFICULTIES } from '../game/difficulty.js';
 import { loadProgress, selectDifficulty } from '../game/progress.js';
 
@@ -15,6 +16,7 @@ export class DifficultyScene extends Phaser.Scene {
   }
 
   create() {
+    applyCameraZoom(this);
     this.build();
 
     this.scale.on('resize', this.onResize, this);
@@ -30,8 +32,8 @@ export class DifficultyScene extends Phaser.Scene {
   }
 
   build() {
-    const W = this.scale.gameSize.width;
-    const H = this.scale.gameSize.height;
+    const W = viewSize(this).width;
+    const H = viewSize(this).height;
     const L = computeLayout(W, H);
     const s = L.uiScale;
 

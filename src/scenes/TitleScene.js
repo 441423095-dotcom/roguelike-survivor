@@ -11,6 +11,7 @@ import { loadProgress, formatDuration, clearProgress } from '../game/progress.js
 import { loadMeta } from '../game/meta.js';
 import { initAudio, startMusic } from '../game/audio.js';
 import { sharpenText } from '../ui/text.js';
+import { applyCameraZoom, viewSize } from '../ui/view.js';
 
 const GAME_TITLE = '像素弹幕生存';
 const GAME_SUBTITLE = '在无尽的怪潮中，构筑你的奇葩流派';
@@ -22,6 +23,7 @@ export class TitleScene extends Phaser.Scene {
   }
 
   create() {
+    applyCameraZoom(this);
     this.cameras.main.setBackgroundColor(0x04060b);
     this.build();
 
@@ -48,8 +50,8 @@ export class TitleScene extends Phaser.Scene {
   }
 
   build() {
-    const W = this.scale.gameSize.width;
-    const H = this.scale.gameSize.height;
+    const W = viewSize(this).width;
+    const H = viewSize(this).height;
     const L = computeLayout(W, H);
     const s = L.uiScale;
 
@@ -314,8 +316,8 @@ export class TitleScene extends Phaser.Scene {
 
   /// One dark sheet for the small screens that ride on top of the title.
   buildSheet(title, lines, actions) {
-    const W = this.scale.gameSize.width;
-    const H = this.scale.gameSize.height;
+    const W = viewSize(this).width;
+    const H = viewSize(this).height;
     const s = computeLayout(W, H).uiScale;
 
     const dim = this.add

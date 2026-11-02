@@ -34,6 +34,12 @@ body {
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+  /* Canvas text is rasterised by the browser, and Safari's own smoothing of it
+     follows the page. Antialiased glyphs are the crisp ones on a dark screen,
+     and geometricPrecision keeps the metrics exact instead of snapped. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: geometricPrecision;
 }
 
 /* Phaser creates the canvas inside this element and sizes it to match. */
@@ -44,6 +50,11 @@ body {
 
 #stage canvas {
   display: block;
+  /* The canvas is written at the screen's own device resolution (see
+     src/main.js), so it is only ever shown at exactly its CSS size. Stretching
+     it any further is what blurs it. */
+  width: 100%;
+  height: 100%;
 }
 
 
