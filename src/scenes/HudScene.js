@@ -65,13 +65,9 @@ export class HudScene extends Phaser.Scene {
     const pauseY = top + stripH / 2;
 
     const barX = stripX + 34;
-    const barW = Math.max(70, pauseX - pauseR - barX - 96);
+    const barW = Math.max(70, pauseX - pauseR - barX - 12);
     const barH = Math.max(12, Math.round(14 * L.uiScale));
-    const hpY = top + stripH * 0.3;
-    const xpY = top + stripH * 0.72;
-    const xpH = Math.max(4, Math.round(5 * L.uiScale));
-    const xpX = stripX + Math.round(62 * L.uiScale);
-    const xpW = Math.max(40, barX + barW - xpX);
+    const hpY = top + stripH * 0.5;
 
     this.heart = this.add
       .image(stripX + 19, hpY, 'icon-heart')
@@ -93,21 +89,6 @@ export class HudScene extends Phaser.Scene {
         fontStyle: 'bold'
       })
       .setOrigin(1, 0.5);
-
-    this.lvText = this.add
-      .text(stripX + 12, xpY, 'Lv 1', {
-        fontFamily: FONT,
-        fontSize: size(13),
-        color: COLORS.dim
-      })
-      .setOrigin(0, 0.5);
-
-    this.xpBack = this.add
-      .rectangle(xpX, xpY, xpW, xpH, 0x1d2a3a)
-      .setOrigin(0, 0.5);
-    this.xpFill = this.add
-      .rectangle(xpX, xpY, xpW, xpH, 0x39e6cd)
-      .setOrigin(0, 0.5);
 
     const waveRight = pauseX - pauseR - 10;
     this.waveText = this.add
@@ -152,22 +133,6 @@ export class HudScene extends Phaser.Scene {
 
     this.timerFill = this.add
       .rectangle(timerX + 12, timerY + timerH - 9, timerBarW, timerBarH, 0x2bd3c4)
-      .setOrigin(0, 0.5)
-      .setDepth(2);
-
-    // Purse, tucked into the gap at the right of the XP row.
-    const purseX = barX + barW + 8;
-    this.add
-      .image(purseX + 7 * L.uiScale, xpY, 'coin')
-      .setDisplaySize(Math.round(13 * L.uiScale), Math.round(13 * L.uiScale))
-      .setDepth(2);
-    this.coinText = this.add
-      .text(purseX + 18 * L.uiScale, xpY, '0', {
-        fontFamily: FONT,
-        fontSize: size(12),
-        color: COLORS.goldHex,
-        fontStyle: 'bold'
-      })
       .setOrigin(0, 0.5)
       .setDepth(2);
 
@@ -425,17 +390,6 @@ export class HudScene extends Phaser.Scene {
       1
     );
     this.hpText.setText(`${Math.ceil(s.hp)}/${s.maxHp}`);
-    this.xpFill.setScale(
-      Math.max(0.0001, Phaser.Math.Clamp(s.xp / s.xpNext, 0, 1)),
-      1
-    );
-    this.lvText.setText(`Lv ${s.level}`);
-
-    // 生锈的硬币 caps the purse, so the cap is shown next to the count.
-    const coins = Math.floor(s.coins || 0);
-    this.coinText.setText(
-      Number.isFinite(s.coinCap) ? `${coins}/${s.coinCap}` : String(coins)
-    );
 
     this.waveText.setText(
       isEndlessWave(s.wave) ? `无尽波 ${s.wave}` : `第 ${s.wave} 波`

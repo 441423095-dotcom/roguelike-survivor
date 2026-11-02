@@ -217,14 +217,13 @@ export class GameScene extends Phaser.Scene {
     this.border = this.add.graphics().setDepth(-10);
     this.drawBorder();
 
-    // The player is locked out of the strip under the HUD and the left-hand
-    // column, so the fight always happens in the open part of the arena.
-    const play = this.layout.play;
+    // The whole arena is walkable now that nothing sits over the field: the
+    // player can slide all the way to the edges of the panel.
     this.physics.world.setBounds(
-      play.left,
-      play.top,
-      Math.max(40, play.right - play.left),
-      Math.max(40, play.bottom - play.top)
+      0,
+      0,
+      Math.max(40, this.layout.width),
+      Math.max(40, this.layout.height)
     );
   }
 
@@ -320,30 +319,16 @@ export class GameScene extends Phaser.Scene {
   // ------------------------------------------------------------- controls
 
   buildControls() {
+    // Combat HUD is deliberately bare: one dash button and no side panels, so
+    // the field is clear. Weapons and items are shown in the shop screen.
     this.dashGfx = this.add.graphics().setDepth(20);
     this.dashIcon = this.add
       .image(0, 0, 'icon-chevrons-right')
       .setDepth(20)
       .setTint(0xffd9a0);
-    this.slotGfx = this.add.graphics().setDepth(20);
-    this.slotIcons = [];
-    // The item column under the weapons, and the recharge arcs drawn over it.
-    this.itemGfx = this.add.graphics().setDepth(20);
-    this.itemIcons = [];
-    this.itemPositions = {};
-    this.chargeGfx = this.add.graphics().setDepth(22);
-    // The pulsing rings over weapons that have a merge partner.
-    this.mergeGfx = this.add.graphics().setDepth(22);
-    this.skillGfx = this.add.graphics().setDepth(20);
-    this.skillIcon = this.add
-      .image(0, 0, 'icon-zap')
-      .setDepth(20)
-      .setTint(0xa8f0ff);
+    this.slotPositions = [];
 
     this.drawDash();
-    this.drawWeaponSlots();
-    this.drawItemBar();
-    this.drawSkill();
 
     this.input.on('pointerdown', this.onPointerDown, this);
     this.input.on('pointermove', this.onPointerMove, this);
@@ -389,46 +374,6 @@ export class GameScene extends Phaser.Scene {
     this.dashIcon.setAlpha(ratio > 0 ? 0.35 : 1);
   }
 
-  /// The blink button: a ring fills as it recharges, and turns bright when the
-  /// jump is ready.
-  drawSkill() {
-    const layout = this.layout;
-    const slot = layout.skill;
-    const g = this.skillGfx;
-    if (!g || !slot) return;
-
-    const charge = 1 - this.blinkCoolRatio();
-    const ready = charge >= 1;
-
-    g.clear();
-    g.fillStyle(0x121a26, ready ? 0.95 : 0.8);
-    g.fillCircle(slot.x, slot.y, slot.radius);
-    g.lineStyle(2, 0xa8f0ff, ready ? 0.9 : 0.3);
-    g.strokeCircle(slot.x, slot.y, slot.radius);
-
-    if (charge > 0) {
-      g.lineStyle(4, 0xa8f0ff, ready ? 0.85 : 0.6);
-      g.beginPath();
-      g.arc(
-        slot.x,
-        slot.y,
-        slot.radius - 4,
-        -Math.PI / 2,
-        -Math.PI / 2 + Math.PI * 2 * charge,
-        false
-      );
-      g.strokePath();
-    }
-
-    this.skillIcon.setPosition(slot.x, slot.y);
-    this.skillIcon.setDisplaySize(slot.radius * 1.1, slot.radius * 1.1);
-    this.skillIcon.setAlpha(ready ? 1 : 0.45);
-  }
-
-  blinkCoolRatio() {
-    return Math.max(0, (this.blinkReadyAt - this.time.now) / BLINK_COOLDOWN);
-  }
-
   dashCoolRatio() {
     return Math.max(0, (this.dashReadyAt - this.time.now) / DASH_COOLDOWN);
   }
@@ -436,16 +381,6 @@ export class GameScene extends Phaser.Scene {
   onPointerDown(pointer) {
     if (!this.running || this.pausedByUser || this.shopOpen || this.choiceOpen)
       return;
-
-    const skill = this.layout.skill;
-    if (
-      skill &&
-      Phaser.Math.Distance.Between(pointer.x, pointer.y, skill.x, skill.y) <
-        skill.radius * 1.25
-    ) {
-      this.tryBlink();
-      return;
-    }
 
     const dash = this.layout.dash;
     if (
@@ -617,7 +552,6 @@ export class GameScene extends Phaser.Scene {
 
     haptic('dash');
     Sfx.blink();
-    this.drawSkill();
   }
 
   // ----------------------------------------------------------------- frame
@@ -646,9 +580,6 @@ export class GameScene extends Phaser.Scene {
     this.updateCompanions(delta);
 
     this.drawDash();
-    this.drawSkill();
-    this.drawItemCharges();
-    this.drawMergeHints();
 
     this.shadow.setPosition(this.player.x, this.player.y + 15);
   }
@@ -3434,21 +3365,17 @@ export class GameScene extends Phaser.Scene {
     this.floor.setSize(field.width, field.height);
     this.drawBorder();
 
-    const play = this.layout.play;
     this.physics.world.setBounds(
-      play.left,
-      play.top,
-      Math.max(40, play.right - play.left),
-      Math.max(40, play.bottom - play.top)
+      0,
+      0,
+      Math.max(40, field.width),
+      Math.max(40, field.height)
     );
 
-    this.player.x = Phaser.Math.Clamp(this.player.x, play.left + 20, play.right - 20);
-    this.player.y = Phaser.Math.Clamp(this.player.y, play.top + 20, play.bottom - 20);
+    this.player.x = Phaser.Math.Clamp(this.player.x, 18, field.width - 18);
+    this.player.y = Phaser.Math.Clamp(this.player.y, 18, field.height - 18);
 
     this.drawDash();
-    this.drawWeaponSlots();
-    this.drawItemBar();
-    this.drawSkill();
   }
 
   // ----------------------------------------------------------------- banner

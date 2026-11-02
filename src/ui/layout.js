@@ -10,18 +10,15 @@ export function computeLayout(width, height) {
   const uiScale = Phaser.Math.Clamp((Math.min(width, height) / 420) * 1.1, 0.9, 1.6);
   const pad = Math.round(18 + 4 * Phaser.Math.Clamp(width / 420, 0.8, 1.4));
 
-  const dashRadius = Phaser.Math.Clamp(height * 0.07, 28, 46);
-  const shockRadius = Phaser.Math.Clamp(height * 0.058, 24, 38);
-  const inset = dashRadius + 22;
+  const dashRadius = Phaser.Math.Clamp(height * 0.088, 34, 58);
+  const inset = dashRadius + 26;
   const dashY = height - inset - 8;
 
-  // Keep the player out from under the HUD: the top strip plus the wave clock,
-  // and the weapon / item column down the left edge.
+  // Keep the player out from under the HUD: the top strip plus the wave clock.
   const playTop =
     Math.max(44, Math.round(height * 0.062)) +
     Math.round(72 * uiScale) +
     Math.round(56 * uiScale);
-  const playLeft = Math.round(86 * uiScale);
 
   return {
     width,
@@ -33,7 +30,7 @@ export function computeLayout(width, height) {
     topInset: Math.max(44, Math.round(height * 0.062)),
     // The part of the arena the player may actually walk in.
     play: {
-      left: playLeft,
+      left: 10,
       top: playTop,
       right: width - 10,
       bottom: height - 10
@@ -50,14 +47,6 @@ export function computeLayout(width, height) {
       x: width - inset,
       y: dashY,
       radius: dashRadius
-    },
-    // The shockwave button sits above the dash, in the same thumb's reach.
-    skill: {
-      x: width - inset,
-      y: dashY - dashRadius - shockRadius - 16,
-      radius: shockRadius
-    },
-    // How far the shockwave reaches.
-    shockRadius: Phaser.Math.Clamp(Math.min(width, height) * 0.42, 180, 300)
+    }
   };
 }
