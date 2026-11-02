@@ -2,7 +2,7 @@
 // in from the edges, an auto-aiming weapon, XP gems and upgrades. The bottom band
 // is reserved for the touch controls so nothing is ever drawn over the arena.
 
-import { computeLayout } from '../ui/layout.js';
+import { computeLayout, hudGeometry } from '../ui/layout.js';
 import { COLORS, FONT } from '../ui/style.js';
 import { rollCards, UPGRADE_BY_KEY } from '../game/upgrades.js';
 import { rollShopItems, SHOP_REFRESH_COST } from '../game/shop.js';
@@ -218,13 +218,16 @@ export class GameScene extends Phaser.Scene {
     this.border = this.add.graphics().setDepth(-10);
     this.drawBorder();
 
-    // The whole arena is walkable now that nothing sits over the field: the
-    // player can slide all the way to the edges of the panel.
+    // The whole arena is walkable left to right; the only floor is the bottom
+    // of the top HUD, so nobody ever hides under it.
+    const hud = hudGeometry(this.layout);
+    this.safeTop = hud.safeTop;
+
     this.physics.world.setBounds(
       0,
-      0,
+      this.safeTop,
       Math.max(40, this.layout.width),
-      Math.max(40, this.layout.height)
+      Math.max(40, this.layout.height - this.safeTop)
     );
   }
 
@@ -568,10 +571,11 @@ export class GameScene extends Phaser.Scene {
 
     const L = this.layout;
     const s = L.uiScale;
-    const top = L.topInset;
     const stripX = 10;
     const stripW = L.width - 20;
-    const stripH = Math.round(72 * s);
+    const hud = hudGeometry(L);
+    const top = hud.stripTop;
+    const stripH = hud.stripH;
 
     // Leave room on the right for the pause button, which stays in the HUD.
     const pauseR = Math.max(13, Math.round(17 * s));
@@ -579,10 +583,12 @@ export class GameScene extends Phaser.Scene {
     const waveRight = pauseX - pauseR - 14;
 
     const waveW = Math.round(72 * s);
-    const barX = stripX + 34;
+    const barX = stripX + 32;
     const barW = Math.max(56, waveRight - waveW - barX - 8);
-    const barH = Math.max(12, Math.round(14 * s));
-    const hpY = top + stripH * 0.5;
+    const barH = Math.max(8, Math.round(10 * s));
+    const hpY = top + stripH * 0.42;
+    const xpY = top + stripH * 0.76;
+    const xpH = Math.max(3, Math.round(4 * s));
 
     const panel = this.add.graphics().setDepth(-6);
     panel.fillStyle(0x0b1018, 0.72);
@@ -592,8 +598,8 @@ export class GameScene extends Phaser.Scene {
     this.topBarItems.push(panel);
 
     const heart = this.add
-      .image(stripX + 19, hpY, 'icon-heart')
-      .setDisplaySize(Math.round(18 * s), Math.round(18 * s))
+      .image(stripX + 17, hpY, 'icon-heart')
+      .setDisplaySize(Math.round(15 * s), Math.round(15 * s))
       .setTint(0xff5a72)
       .setDepth(-5);
     this.topBarItems.push(heart);
@@ -611,7 +617,7 @@ export class GameScene extends Phaser.Scene {
     this.hpText = this.add
       .text(barX + barW - 8, hpY, '100/100', {
         fontFamily: FONT,
-        fontSize: `${Math.round(12 * s)}px`,
+        fontSize: `${Math.round(11 * s)}px`,
         color: '#ffffff',
         fontStyle: 'bold'
       })
@@ -619,10 +625,21 @@ export class GameScene extends Phaser.Scene {
       .setDepth(-4);
     this.topBarItems.push(this.hpText);
 
+    // The experience bar: one thin line tucked under the health bar.
+    this.xpBack = this.add
+      .rectangle(barX, xpY, barW, xpH, 0x1d2a3a)
+      .setOrigin(0, 0.5)
+      .setDepth(-5);
+    this.xpFill = this.add
+      .rectangle(barX, xpY, barW, xpH, 0x39e6cd)
+      .setOrigin(0, 0.5)
+      .setDepth(-5);
+    this.topBarItems.push(this.xpBack, this.xpFill);
+
     this.waveText = this.add
       .text(waveRight, hpY, '第 1 波', {
         fontFamily: FONT,
-        fontSize: `${Math.round(16 * s)}px`,
+        fontSize: `${Math.round(14 * s)}px`,
         color: '#ffffff',
         fontStyle: 'bold'
       })
@@ -630,11 +647,11 @@ export class GameScene extends Phaser.Scene {
       .setDepth(-4);
     this.topBarItems.push(this.waveText);
 
-    // The wave clock, centred under the strip.
-    const timerW = Math.round(140 * s);
-    const timerH = Math.round(40 * s);
+    // The wave clock, centred under the strip: small, bright, unmissable.
+    const timerW = Math.round(104 * s);
+    const timerH = hud.timerH;
     const timerX = L.width / 2 - timerW / 2;
-    const timerY = top + stripH + 6;
+    const timerY = hud.timerY;
 
     this.timerGfx = this.add.graphics().setDepth(-6);
     this.timerGfx.fillStyle(0x0b1018, 0.6);
@@ -644,9 +661,9 @@ export class GameScene extends Phaser.Scene {
     this.topBarItems.push(this.timerGfx);
 
     this.timerText = this.add
-      .text(L.width / 2, timerY + timerH * 0.42, '20s', {
+      .text(L.width / 2, timerY + timerH * 0.45, '20s', {
         fontFamily: FONT,
-        fontSize: `${Math.round(24 * s)}px`,
+        fontSize: `${Math.round(18 * s)}px`,
         color: '#ffffff',
         fontStyle: 'bold'
       })
@@ -654,15 +671,15 @@ export class GameScene extends Phaser.Scene {
       .setDepth(-4);
     this.topBarItems.push(this.timerText);
 
-    const timerBarW = timerW - 24;
-    const timerBarH = Math.max(3, Math.round(4 * s));
+    const timerBarW = timerW - 20;
+    const timerBarH = Math.max(3, Math.round(3 * s));
 
     this.timerBack = this.add
-      .rectangle(timerX + 12, timerY + timerH - 9, timerBarW, timerBarH, 0x1d2a3a)
+      .rectangle(timerX + 10, timerY + timerH - 7, timerBarW, timerBarH, 0x1d2a3a)
       .setOrigin(0, 0.5)
       .setDepth(-5);
     this.timerFill = this.add
-      .rectangle(timerX + 12, timerY + timerH - 9, timerBarW, timerBarH, 0x2bd3c4)
+      .rectangle(timerX + 10, timerY + timerH - 7, timerBarW, timerBarH, 0x2bd3c4)
       .setOrigin(0, 0.5)
       .setDepth(-5);
     this.topBarItems.push(this.timerBack, this.timerFill);
@@ -685,6 +702,10 @@ export class GameScene extends Phaser.Scene {
       1
     );
     this.hpText.setText(`${Math.ceil(s.hp)}/${s.maxHp}`);
+    this.xpFill.setScale(
+      Math.max(0.0001, Phaser.Math.Clamp(s.xp / s.xpNext, 0, 1)),
+      1
+    );
     this.waveText.setText(
       isEndlessWave(s.wave) ? `无尽波 ${s.wave}` : `第 ${s.wave} 波`
     );
@@ -2243,7 +2264,7 @@ export class GameScene extends Phaser.Scene {
 
     if (edge === 0) {
       x = Phaser.Math.Between(30, field.width - 30);
-      y = def.radius + 14;
+      y = this.safeTop + def.radius + 6;
     } else if (edge === 1) {
       x = field.width - def.radius - 14;
       y = Phaser.Math.Between(30, field.height - 30);
@@ -2344,7 +2365,7 @@ export class GameScene extends Phaser.Scene {
 
     if (edge === 0) {
       x = Phaser.Math.Between(30, field.width - 30);
-      y = def.radius + 14;
+      y = this.safeTop + def.radius + 6;
     } else if (edge === 1) {
       x = field.width - def.radius - 14;
       y = Phaser.Math.Between(30, field.height - 30);
@@ -2373,7 +2394,7 @@ export class GameScene extends Phaser.Scene {
     const boss = this.makeEnemy(
       def,
       field.centerX,
-      Math.max(90, field.height * 0.22)
+      Math.max(this.safeTop + 60, field.height * 0.22)
     );
     if (!boss) return;
 
@@ -2392,6 +2413,8 @@ export class GameScene extends Phaser.Scene {
     if (!enemy) return null;
 
     enemy.setDepth(3);
+    // Nothing walks up under the HUD strip; the world bounds take care of it.
+    enemy.setCollideWorldBounds(true);
     const offX = def.offsetX || def.offset;
     const offY = def.offsetY || def.offset;
     enemy.body.setCircle(def.radius, offX, offY);
@@ -3517,15 +3540,21 @@ export class GameScene extends Phaser.Scene {
     this.floor.setSize(field.width, field.height);
     this.drawBorder();
 
+    const hud = hudGeometry(this.layout);
+    this.safeTop = hud.safeTop;
     this.physics.world.setBounds(
       0,
-      0,
+      this.safeTop,
       Math.max(40, field.width),
-      Math.max(40, field.height)
+      Math.max(40, field.height - this.safeTop)
     );
 
     this.player.x = Phaser.Math.Clamp(this.player.x, 18, field.width - 18);
-    this.player.y = Phaser.Math.Clamp(this.player.y, 18, field.height - 18);
+    this.player.y = Phaser.Math.Clamp(
+      this.player.y,
+      this.safeTop + 18,
+      field.height - 18
+    );
 
     this.drawDash();
     this.buildTopBar();

@@ -14,12 +14,6 @@ export function computeLayout(width, height) {
   const inset = dashRadius + 26;
   const dashY = height - inset - 8;
 
-  // Keep the player out from under the HUD: the top strip plus the wave clock.
-  const playTop =
-    Math.max(44, Math.round(height * 0.062)) +
-    Math.round(72 * uiScale) +
-    Math.round(56 * uiScale);
-
   return {
     width,
     height,
@@ -28,13 +22,6 @@ export function computeLayout(width, height) {
     // Leave real room at the top for the phone's notch / status area, so the
     // HUD strip is never partly hidden underneath it.
     topInset: Math.max(44, Math.round(height * 0.062)),
-    // The part of the arena the player may actually walk in.
-    play: {
-      left: 10,
-      top: playTop,
-      right: width - 10,
-      bottom: height - 10
-    },
     fieldHeight: height,
     field: new Phaser.Geom.Rectangle(0, 0, width, height),
     // Only the ring drawn under a moving thumb uses this.
@@ -48,5 +35,27 @@ export function computeLayout(width, height) {
       y: dashY,
       radius: dashRadius
     }
+  };
+}
+
+/// Where the top HUD sits and, more importantly, the y below which the fight
+/// may happen. Everything is derived from one place so the strip, the clock and
+/// the movement floor can never disagree.
+export function hudGeometry(L) {
+  const stripTop = L.topInset;
+  const stripH = Math.round(52 * L.uiScale);
+  const stripBottom = stripTop + stripH;
+
+  const timerH = Math.round(30 * L.uiScale);
+  const timerY = stripBottom + 5;
+  const safeTop = timerY + timerH + 6;
+
+  return {
+    stripTop,
+    stripH,
+    stripBottom,
+    timerH,
+    timerY,
+    safeTop
   };
 }

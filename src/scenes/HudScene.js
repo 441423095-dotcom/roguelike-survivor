@@ -2,7 +2,7 @@
 // live run state out of the game scene each frame instead of keeping a copy, so
 // there is only ever one source of truth.
 
-import { computeLayout } from '../ui/layout.js';
+import { computeLayout, hudGeometry } from '../ui/layout.js';
 import { COLORS, FONT } from '../ui/style.js';
 import { makeButton } from '../ui/widgets.js';
 import { sharpenText } from '../ui/text.js';
@@ -44,8 +44,9 @@ export class HudScene extends Phaser.Scene {
 
   build() {
     const L = this.layout;
-    const top = L.topInset;
-    const stripH = Math.round(72 * L.uiScale);
+    const hud = hudGeometry(L);
+    const top = hud.stripTop;
+    const stripH = hud.stripH;
 
     // The health strip, wave label and clock are drawn by the game scene itself
     // (below its sprites). Only the controls and the boss bar live up here.
@@ -69,7 +70,7 @@ export class HudScene extends Phaser.Scene {
     const bossBarW = Math.min(L.width - 60, Math.round(320 * L.uiScale));
     const bossBarH = Math.max(10, Math.round(12 * L.uiScale));
     const bossBarX = (L.width - bossBarW) / 2;
-    const bossBarY = top + stripH + 76;
+    const bossBarY = hud.timerY + hud.timerH + 14;
 
     this.bossLabel = this.add
       .text(L.width / 2, bossBarY - 13 * L.uiScale, '首领', {
