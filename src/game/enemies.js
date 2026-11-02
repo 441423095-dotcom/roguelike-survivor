@@ -140,6 +140,86 @@ export const ENEMY_TYPES = {
   }
 };
 
+// The three bosses take turns, one every fifth wave. They share the boss sprite
+// but nothing else: each has its own colour, size and rhythm, so a boss wave
+// always asks a different question. `scale` shrinks the whole body and hitbox.
+export const BOSS_TYPES = [
+  {
+    key: 'charger',
+    name: '冲撞巨兽',
+    variant: 'charge',
+    texture: 'boss',
+    hp: 340,
+    speed: 62,
+    damage: 15,
+    radius: 40,
+    offset: 20,
+    scale: 1.08,
+    xp: 6,
+    gems: 8,
+    coins: 12,
+    coinChance: 1,
+    weaponChance: 1,
+    color: 0xff3d6e,
+    behaviour: 'boss',
+    aura: 196,
+    auraColor: 0xff3d6e,
+    shotDamage: 9
+  },
+  {
+    key: 'ring',
+    name: '弹幕之眼',
+    variant: 'barrage',
+    texture: 'boss',
+    hp: 300,
+    speed: 44,
+    damage: 12,
+    radius: 40,
+    offset: 20,
+    scale: 0.86,
+    xp: 7,
+    gems: 8,
+    coins: 12,
+    coinChance: 1,
+    weaponChance: 1,
+    color: 0x63ffe0,
+    behaviour: 'boss',
+    aura: 168,
+    auraColor: 0x63ffe0,
+    shotDamage: 8
+  },
+  {
+    key: 'summoner',
+    name: '召唤祭司',
+    variant: 'summon',
+    texture: 'boss',
+    hp: 380,
+    speed: 48,
+    damage: 13,
+    radius: 40,
+    offset: 20,
+    scale: 0.96,
+    xp: 8,
+    gems: 9,
+    coins: 14,
+    coinChance: 1,
+    weaponChance: 1,
+    color: 0xb07bff,
+    behaviour: 'boss',
+    aura: 176,
+    auraColor: 0xb07bff,
+    shotDamage: 7
+  }
+];
+
+/// The boss standing in front of this wave: charger, then the ring-thrower, then
+/// the summoner, and around again.
+export function bossForWave(wave) {
+  const w = Math.max(1, wave);
+  const index = (Math.ceil(w / 5) - 1) % BOSS_TYPES.length;
+  return BOSS_TYPES[Math.max(0, index)];
+}
+
 /// Every fifth wave is a boss wave: no spawns, no clock, one huge enemy.
 export function isBossWave(wave) {
   return wave % 5 === 0;

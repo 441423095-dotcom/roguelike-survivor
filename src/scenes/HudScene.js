@@ -71,20 +71,24 @@ export class HudScene extends Phaser.Scene {
     });
 
     // The boss bar sits just under the strip, at the top of the level. It is
-    // hidden until a boss wave is actually underway.
-    const bossBarW = Math.min(L.width - 60, Math.round(320 * L.uiScale));
+    // hidden until a boss wave is actually underway. It stops short of the left
+    // edge so the boss's name has room beside it.
+    const bossBarW = Math.min(
+      L.width - 128 * L.uiScale,
+      Math.round(300 * L.uiScale)
+    );
     const bossBarH = Math.max(10, Math.round(12 * L.uiScale));
     const bossBarX = (L.width - bossBarW) / 2;
     const bossBarY = hud.timerY + hud.timerH + 14;
 
     this.bossLabel = this.add
-      .text(L.width / 2, bossBarY - 13 * L.uiScale, '首领', {
+      .text(bossBarX - 8 * L.uiScale, bossBarY, '首领', {
         fontFamily: FONT,
         fontSize: `${Math.round(11 * L.uiScale)}px`,
         color: '#ff9db0',
         fontStyle: 'bold'
       })
-      .setOrigin(0.5)
+      .setOrigin(1, 0.5)
       .setDepth(2);
 
     this.bossBack = this.add
@@ -369,6 +373,16 @@ export class HudScene extends Phaser.Scene {
     }
 
     if (!show) return;
+
+    // The name of whichever boss is standing, and its own colour on the bar.
+    const name = boss.getData('bossName') || '首领';
+    if (this.bossLabel.text !== name) this.bossLabel.setText(name);
+
+    const color = boss.getData('bossColor');
+    if (color) {
+      this.bossLabel.setColor(`#${color.toString(16).padStart(6, '0')}`);
+      this.bossFill.setFillStyle(color);
+    }
 
     const hp = boss.getData('hp') || 0;
     const max = boss.getData('maxHp') || 1;

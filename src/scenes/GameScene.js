@@ -46,6 +46,7 @@ import { difficultyFor } from '../game/difficulty.js';
 import { TEXT_RESOLUTION, sharpenText } from '../ui/text.js';
 import {
   ENEMY_TYPES,
+  bossForWave,
   pickEnemyType,
   waveDuration,
   waveScaling,
@@ -1395,10 +1396,22 @@ export class GameScene extends Phaser.Scene {
     shot.setData('age', 0);
   }
 
-  /// The boss: slow chase, then alternating between a telegraphed charge and a
-  /// ring of orbs. Both windows stop it dead for a moment so they are readable.
+  /// The three bosses, each with its own rhythm. The charger alternates a
+  /// telegraphed charge with a ring; the ring-thrower never charges but throws
+  /// denser rings more often; the summoner chases and calls minions in.
   updateBoss(boss, delta) {
     const now = this.time.now;
+    const variant = boss.getData('variant') || 'charge';
+
+    if (variant === 'barrage') {
+      this.updateBarrageBoss(boss, delta);
+      return;
+    }
+    if (variant === 'summon') {
+      this.updateSummonerBoss(boss, delta);
+      return;
+    }
+
     const windupUntil = boss.getData('windupUntil') || 0;
     const chargeUntil = boss.getData('chargeUntil') || 0;
     const stunUntil = boss.getData('stunUntil') || 0;
@@ -1453,28 +1466,28 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  bossBarrage(boss) {
+  bossBarrage(boss, count = 16, speed = 185) {
     const angle = Phaser.Math.Angle.Between(
       boss.x,
       boss.y,
       this.player.x,
       this.player.y
     );
-    // A wider ring: the gaps between orbs are where a player lives, so sixteen
-    // of them turn a boss barrage into a real dodge.
-    const count = 16;
+    const color = boss.getData('bossColor') || 0xff3d6e;
 
+    // A wider ring: the gaps between orbs are where a player lives, so a ring of
+    // them turns a boss barrage into a real dodge.
     for (let i = 0; i < count; i++) {
       this.spawnOrb(
         boss.x,
         boss.y,
         angle + (i / count) * Math.PI * 2,
-        185,
+        speed,
         boss.getData('shotDamage') || 12
       );
     }
 
-    const flash = this.add.circle(boss.x, boss.y, 26, 0xff3d6e, 0.5).setDepth(4);
+    const flash = this.add.circle(boss.x, boss.y, 26, color, 0.5).setDepth(4);
     this.tweens.add({
       targets: flash,
       alpha: 0,
@@ -1483,6 +1496,95 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => flash.destroy()
     });
     haptic('impact');
+  }
+
+  /// 弹幕之眼: it drifts at the player but never lunges, and answers with a much
+  /// denser ring than the charger ever throws.
+  updateBarrageBoss(boss, delta) {
+    const now = this.time.now;
+    const angle = Math.atan2(this.player.y - boss.y, this.player.x - boss.x);
+    const speed = boss.getData('speed') || 44;
+    boss.body.velocity.set(Math.cos(angle) * speed, Math.sin(angle) * speed);
+
+    const timer = (boss.getData('actionTimer') || 0) - delta;
+    boss.setData('actionTimer', timer);
+    if (timer > 0) return;
+
+    boss.setData('actionTimer', 1050);
+
+    boss.setTint(0xc8fff4);
+    const sprite = boss;
+    this.time.delayedCall(200, () => {
+      if (sprite.active) sprite.clearTint();
+    });
+    this.time.delayedCall(240, () => {
+      if (sprite.active && this.running) this.bossBarrage(sprite, 24, 210);
+    });
+  }
+
+  /// 召唤祭司: a slow chase, a thin ring, and every few seconds two of the wave's
+  /// own monsters pulled out of thin air.
+  updateSummonerBoss(boss, delta) {
+    const now = this.time.now;
+    const angle = Math.atan2(this.player.y - boss.y, this.player.x - boss.x);
+    const speed = boss.getData('speed') || 48;
+    boss.body.velocity.set(Math.cos(angle) * speed, Math.sin(angle) * speed);
+
+    if (now >= (boss.getData('summonAt') || 0)) {
+      boss.setData('summonAt', now + 6200);
+      this.bossSummon(boss);
+    }
+
+    const timer = (boss.getData('actionTimer') || 0) - delta;
+    boss.setData('actionTimer', timer);
+    if (timer > 0) return;
+
+    boss.setData('actionTimer', 2600);
+    this.bossBarrage(boss, 8, 170);
+  }
+
+  /// Calls a couple of this wave's monsters around the summoner, never past the
+  /// wave's own live ceiling.
+  bossSummon(boss) {
+    const plan = waveSpawnPlan(this.state.wave);
+    const room = Math.max(
+      0,
+      Math.min(2, plan.cap - this.enemies.countActive(true))
+    );
+    if (room <= 0) return;
+
+    const field = this.layout.field;
+    let spawned = 0;
+
+    for (let i = 0; i < room; i++) {
+      const typeKey = pickEnemyType(this.state.wave);
+      const def = ENEMY_TYPES[typeKey];
+      if (!def) continue;
+
+      const a = Math.random() * Math.PI * 2;
+      const x = Phaser.Math.Clamp(
+        boss.x + Math.cos(a) * 60,
+        30,
+        field.width - 30
+      );
+      const y = Phaser.Math.Clamp(
+        boss.y + Math.sin(a) * 60,
+        this.safeTop + 30,
+        field.height - 30
+      );
+
+      markDiscovered(typeKey);
+      if (!this.makeEnemy(def, x, y)) continue;
+
+      this.spawnBurst(x, y, 0xb07bff, 5);
+      spawned += 1;
+    }
+
+    if (spawned === 0) return;
+
+    haptic('charge');
+    Sfx.zap();
+    this.notify('召唤！', boss.x, boss.y - 24);
   }
 
   onShotTouch(a, b) {
@@ -3250,9 +3352,10 @@ export class GameScene extends Phaser.Scene {
       // boss falls.
       this.bossFight = true;
       s.waveLeft = 0;
+      const bossDef = bossForWave(wave);
       this.banner(
         isEndlessWave(wave) ? `无尽波 ${wave} · 首领` : `第 ${wave} 波 · 首领`,
-        '击败首领结束这一波'
+        bossDef ? `击败「${bossDef.name}」结束这一波` : '击败首领结束这一波'
       );
       this.time.delayedCall(700, () => this.spawnBoss());
       return;
@@ -3455,11 +3558,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   /// The boss drops into the top of the arena on its own, after the warning
-  /// banner has had a moment to read.
+  /// banner has had a moment to read. Which boss it is depends on the wave.
   spawnBoss() {
     if (!this.running || !this.bossFight) return;
 
-    const def = ENEMY_TYPES.boss;
+    const def = bossForWave(this.state.wave);
     if (!def) return;
 
     markDiscovered('boss');
@@ -3475,7 +3578,11 @@ export class GameScene extends Phaser.Scene {
     this.boss = boss;
     boss.setCollideWorldBounds(true);
     boss.setData('actionTimer', 1400);
-    this.spawnBurst(boss.x, boss.y, 0xff3d6e, 16);
+    boss.setData('summonAt', this.time.now + 4200);
+    boss.setData('variant', def.variant);
+    boss.setData('bossName', def.name);
+    boss.setData('bossColor', def.color);
+    this.spawnBurst(boss.x, boss.y, def.color, 16);
     haptic('impact');
     Sfx.boss();
   }
@@ -3492,6 +3599,9 @@ export class GameScene extends Phaser.Scene {
     const offX = def.offsetX || def.offset;
     const offY = def.offsetY || def.offset;
     enemy.body.setCircle(def.radius, offX, offY);
+
+    // A scaled boss keeps its circle in proportion: the body follows the scale.
+    if (def.scale && def.scale !== 1) enemy.setScale(def.scale);
 
     // Every three waves the whole bestiary steps up a tier. The curve lives in
     // enemies.js so the late run cannot quietly drift out of control.
