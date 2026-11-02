@@ -203,7 +203,15 @@ export class GameScene extends Phaser.Scene {
     this.border = this.add.graphics().setDepth(-10);
     this.drawBorder();
 
-    this.physics.world.setBounds(8, 8, field.width - 16, field.height - 16);
+    // The player is locked out of the strip under the HUD and the left-hand
+    // column, so the fight always happens in the open part of the arena.
+    const play = this.layout.play;
+    this.physics.world.setBounds(
+      play.left,
+      play.top,
+      Math.max(40, play.right - play.left),
+      Math.max(40, play.bottom - play.top)
+    );
   }
 
   drawBorder() {
@@ -514,8 +522,17 @@ export class GameScene extends Phaser.Scene {
 
     const fromX = this.player.x;
     const fromY = this.player.y;
-    const toX = Phaser.Math.Clamp(fromX + dir.x * 150, 26, field.width - 26);
-    const toY = Phaser.Math.Clamp(fromY + dir.y * 150, 26, field.height - 26);
+    const play = this.layout.play;
+    const toX = Phaser.Math.Clamp(
+      fromX + dir.x * 150,
+      play.left + 20,
+      play.right - 20
+    );
+    const toY = Phaser.Math.Clamp(
+      fromY + dir.y * 150,
+      play.top + 20,
+      play.bottom - 20
+    );
 
     this.blinkReadyAt = this.time.now + BLINK_COOLDOWN;
     this.invulnUntil = Math.max(this.invulnUntil, this.time.now + 320);
@@ -2157,6 +2174,18 @@ export class GameScene extends Phaser.Scene {
     haptic('wave_clear');
     Sfx.waveClear();
 
+    // The wave-clear reward is loot at the player's feet, not a popup.
+    const rewardCoins = 2 + Math.floor(this.state.wave / 3);
+    const rewardGems = 2 + Math.floor(this.state.wave / 5);
+    const coinValue = this.state.coinMult || 1;
+
+    for (let i = 0; i < rewardCoins; i++) {
+      this.dropCoin(this.player.x, this.player.y, 16, coinValue);
+    }
+    for (let i = 0; i < rewardGems; i++) {
+      this.dropGem(this.player.x, this.player.y, 1, 16);
+    }
+
     this.announceAchievements(
       recordAchievement({ maxCoins: Math.floor(this.state.coins) })
     );
@@ -2546,12 +2575,8 @@ export class GameScene extends Phaser.Scene {
     this.shopOpen = false;
     duckMusic(1);
 
-    try {
-      if (this.requestChoice('wave')) return;
-    } catch (error) {
-      console.warn('Wave card failed:', error);
-    }
-
+    // No wave-clear card any more: the next wave starts as soon as the shop
+    // closes, so the run never stops for a second reward screen.
     if (!this.running) return;
     this.startNextWave();
     this.scene.resume();
@@ -2605,7 +2630,7 @@ export class GameScene extends Phaser.Scene {
     const x = 8;
     const y = layout.topInset + Math.round(72 * s) + 6;
 
-    g.fillStyle(0x0b1018, 0.72);
+    g.fillStyle(0x0b1018, 0.42);
     g.fillRoundedRect(x, y, width, height, 10);
     g.lineStyle(1, 0x2bd3c4, 0.2);
     g.strokeRoundedRect(x, y, width, height, 10);
@@ -2679,7 +2704,7 @@ export class GameScene extends Phaser.Scene {
     const x = box.x;
     const y = box.y + box.height + 6;
 
-    g.fillStyle(0x0b1018, 0.72);
+    g.fillStyle(0x0b1018, 0.42);
     g.fillRoundedRect(x, y, width, height, 10);
     g.lineStyle(1, 0x2bd3c4, 0.2);
     g.strokeRoundedRect(x, y, width, height, 10);
@@ -3154,15 +3179,17 @@ export class GameScene extends Phaser.Scene {
 
     this.floor.setSize(field.width, field.height);
     this.drawBorder();
+
+    const play = this.layout.play;
     this.physics.world.setBounds(
-      8,
-      8,
-      Math.max(40, field.width - 16),
-      Math.max(40, field.height - 16)
+      play.left,
+      play.top,
+      Math.max(40, play.right - play.left),
+      Math.max(40, play.bottom - play.top)
     );
 
-    this.player.x = Phaser.Math.Clamp(this.player.x, 26, field.width - 26);
-    this.player.y = Phaser.Math.Clamp(this.player.y, 26, field.height - 26);
+    this.player.x = Phaser.Math.Clamp(this.player.x, play.left + 20, play.right - 20);
+    this.player.y = Phaser.Math.Clamp(this.player.y, play.top + 20, play.bottom - 20);
 
     this.drawDash();
     this.drawWeaponSlots();

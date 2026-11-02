@@ -55,7 +55,7 @@ export class HudScene extends Phaser.Scene {
     // icons are all created at the default depth, so a panel drawn above them
     // hid the health bar and the timer completely.
     this.panel = this.add.graphics().setDepth(-1);
-    this.panel.fillStyle(0x0b1018, 0.95);
+    this.panel.fillStyle(0x0b1018, 0.72);
     this.panel.fillRoundedRect(stripX, top, stripW, stripH, 12);
     this.panel.lineStyle(2, 0x2bd3c4, 0.5);
     this.panel.strokeRoundedRect(stripX, top, stripW, stripH, 12);
@@ -127,7 +127,7 @@ export class HudScene extends Phaser.Scene {
     const timerY = top + stripH + 6;
 
     this.timerGfx = this.add.graphics().setDepth(1);
-    this.timerGfx.fillStyle(0x0b1018, 0.9);
+    this.timerGfx.fillStyle(0x0b1018, 0.6);
     this.timerGfx.fillRoundedRect(timerX, timerY, timerW, timerH, 12);
     this.timerGfx.lineStyle(2, 0x2bd3c4, 0.45);
     this.timerGfx.strokeRoundedRect(timerX, timerY, timerW, timerH, 12);

@@ -152,9 +152,11 @@ export function isEndlessWave(wave) {
   return wave > ENDLESS_FROM;
 }
 
-/// How long a wave lasts, in seconds.
+/// How long a wave lasts, in seconds: 20 at the start, two more every wave,
+/// capped at 45 so the late waves have room to breathe.
 export function waveDuration(wave) {
-  return Math.min(20 + wave * 2, 38);
+  const w = Math.max(1, wave);
+  return Math.min(20 + (w - 1) * 2, 45);
 }
 
 /// The whole curve in one place, so the late run cannot drift out of control:

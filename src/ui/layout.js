@@ -15,6 +15,14 @@ export function computeLayout(width, height) {
   const inset = dashRadius + 22;
   const dashY = height - inset - 8;
 
+  // Keep the player out from under the HUD: the top strip plus the wave clock,
+  // and the weapon / item column down the left edge.
+  const playTop =
+    Math.max(44, Math.round(height * 0.062)) +
+    Math.round(72 * uiScale) +
+    Math.round(56 * uiScale);
+  const playLeft = Math.round(86 * uiScale);
+
   return {
     width,
     height,
@@ -23,6 +31,13 @@ export function computeLayout(width, height) {
     // Leave real room at the top for the phone's notch / status area, so the
     // HUD strip is never partly hidden underneath it.
     topInset: Math.max(44, Math.round(height * 0.062)),
+    // The part of the arena the player may actually walk in.
+    play: {
+      left: playLeft,
+      top: playTop,
+      right: width - 10,
+      bottom: height - 10
+    },
     fieldHeight: height,
     field: new Phaser.Geom.Rectangle(0, 0, width, height),
     // Only the ring drawn under a moving thumb uses this.
