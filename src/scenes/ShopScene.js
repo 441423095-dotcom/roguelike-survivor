@@ -216,17 +216,17 @@ export class ShopScene extends Phaser.Scene {
       0
     );
 
-    const rowGap = Math.round(16 * s);
+    const rowGap = Math.round(18 * s);
     const avail = Math.max(200, areaBottom - areaTop);
     // Cards are deliberately shorter than the space the shelf has: the leftover
     // is the breathing room that keeps the grid from feeling packed, and wider
     // gaps between cells give each one its own outline.
     const rawH = Math.min(
-      92 * s,
+      88 * s,
       (avail - labelH * shelves.length - rowGap * (totalRows + shelves.length)) /
         Math.max(1, totalRows)
     );
-    const cellH = Math.max(38, Math.round(rawH * 0.8));
+    const cellH = Math.max(38, Math.round(rawH * 0.76));
 
     let y = areaTop;
 
@@ -915,9 +915,9 @@ export class ShopScene extends Phaser.Scene {
       .setDepth(3)
       .setVisible(false);
 
-    const iconSize = Math.min(17 * s, h * 0.3);
-    const iconX = left + 9 * s + iconSize / 2;
-    const iconY = top + 9 * s + iconSize / 2;
+    const iconSize = Math.min(16 * s, h * 0.3);
+    const iconX = left + 12 * s + iconSize / 2;
+    const iconY = top + 11 * s + iconSize / 2;
 
     this.add
       .text(iconX, iconY, item.emoji || '❓', {
@@ -927,7 +927,7 @@ export class ShopScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(3);
 
-    const textX = iconX + iconSize / 2 + 6 * s;
+    const textX = iconX + iconSize / 2 + 8 * s;
 
     this.add
       .text(textX, iconY, item.name, {
@@ -945,14 +945,14 @@ export class ShopScene extends Phaser.Scene {
     // trimmed with an ellipsis if it needs more lines than the card can show.
     const descText = this.add
       .text(
-        left + 9 * s,
-        top + 24 * s,
+        left + 12 * s,
+        top + 26 * s,
         '',
         {
           fontFamily: FONT,
           fontSize: `${Math.round(10.5 * s)}px`,
           color: '#cfdde9',
-          wordWrap: { width: Math.max(60, w - 18 * s), useAdvancedWrap: true },
+          wordWrap: { width: Math.max(60, w - 24 * s), useAdvancedWrap: true },
           lineSpacing: Math.round(1 * s)
         }
       )
@@ -960,9 +960,11 @@ export class ShopScene extends Phaser.Scene {
       .setDepth(3);
 
     const descLineH = Math.max(9, Math.round(11 * s));
+    // Never more lines than fit above the price row, so the coin never lands on
+    // a line of text.
     const descLines = Math.max(
       1,
-      Math.min(2, Math.floor((h - 26 * s) / descLineH))
+      Math.min(2, Math.floor((h - 44 * s) / descLineH))
     );
     this.fitLines(
       descText,
@@ -1007,50 +1009,50 @@ export class ShopScene extends Phaser.Scene {
       const affordable = this.coins() >= item.price;
       const locked = !!item.locked;
 
-      // A whisper of the tier colour over near-black glass, so the shelf behind
-      // stays faintly visible instead of being blocked by a solid slab.
-      const tint = this.darkTint(color, item.sold ? 0.1 : 0.24);
-
+      // Near-black glass at half opacity: the shelf behind it stays faintly
+      // visible, which is what keeps the cards from looking heavy.
       g.clear();
-      g.fillStyle(0x04070c, item.sold ? 0.72 : 0.58);
-      g.fillRoundedRect(left, top, w, h, 10);
-      g.fillStyle(tint, 0.5);
+      g.fillStyle(0x03060a, 0.5);
       g.fillRoundedRect(left, top, w, h, 10);
 
       // A dark band behind the price, so the number is the brightest thing left
       // in that corner.
-      g.fillStyle(0x03060a, 0.5);
+      g.fillStyle(0x03060a, 0.42);
       g.fillRoundedRect(right - 62 * s, bottom - 18 * s, 56 * s, 16 * s, 6);
 
       // A fine, dim border by default; gold and bright only once the card is
       // pinned.
       g.lineStyle(
-        2,
+        1.5,
         item.sold ? 0x39a05a : locked ? COLORS.gold : color,
-        item.sold ? 0.3 : locked ? 0.95 : 0.5
+        item.sold ? 0.22 : locked ? 0.8 : 0.3
       );
       g.strokeRoundedRect(left, top, w, h, 10);
 
-      // The glow behind the card, a soft hint rather than a halo.
-      const spread = 2 + item.rank * 2;
-      glowG.clear();
-      if (!item.sold) {
-        glowG.fillStyle(color, 0.03 + item.rank * 0.02);
-        glowG.fillRoundedRect(
-          left - spread,
-          top - spread,
-          w + spread * 2,
-          h + spread * 2,
-          14
-        );
-        glowG.lineStyle(1 + item.rank, color, 0.1 + item.rank * 0.04);
-        glowG.strokeRoundedRect(
-          left - spread,
-          top - spread,
-          w + spread * 2,
-          h + spread * 2,
-          14
-        );
+      // The glow behind the card: reserved for the higher tiers, and soft.
+      if (item.rank >= 2) {
+        const spread = 2 + item.rank * 2;
+        glowG.clear();
+        if (!item.sold) {
+          glowG.fillStyle(color, 0.02 + item.rank * 0.012);
+          glowG.fillRoundedRect(
+            left - spread,
+            top - spread,
+            w + spread * 2,
+            h + spread * 2,
+            14
+          );
+          glowG.lineStyle(1 + item.rank * 0.5, color, 0.07 + item.rank * 0.03);
+          glowG.strokeRoundedRect(
+            left - spread,
+            top - spread,
+            w + spread * 2,
+            h + spread * 2,
+            14
+          );
+        }
+      } else {
+        glowG.clear();
       }
 
       priceText
