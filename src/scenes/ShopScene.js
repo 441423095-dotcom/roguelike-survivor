@@ -864,44 +864,25 @@ export class ShopScene extends Phaser.Scene {
     const hex = rarity.hex;
 
     const g = this.add.graphics().setDepth(2);
-
-    // Rarer cards glow behind the border, so a blue pull reads as one.
-    if (item.rank >= 2) {
-      const spread = 3 + item.rank * 2;
-      const glow = this.add.graphics().setDepth(1);
-      glow.fillStyle(rarity.color, 0.08 + item.rank * 0.04);
-      glow.fillRoundedRect(
-        cx - w / 2 - spread,
-        cy - h / 2 - spread,
-        w + spread * 2,
-        h + spread * 2,
-        16
-      );
-      glow.lineStyle(3, rarity.color, 0.2 + item.rank * 0.07);
-      glow.strokeRoundedRect(
-        cx - w / 2 - spread,
-        cy - h / 2 - spread,
-        w + spread * 2,
-        h + spread * 2,
-        16
-      );
-    }
+    // Every card carries a soft glow behind its border, brighter with the tier.
+    const glowG = this.add.graphics().setDepth(1);
 
     const left = cx - w / 2;
     const top = cy - h / 2;
     const right = cx + w / 2;
     const bottom = cy + h / 2;
 
-    // A lock in the top-right corner: pin a card so it survives the next
-    // re-roll and is still here in the next wave's shop.
-    const lockSize = Math.round(18 * s);
-    const lockX = right - 8 * s - lockSize / 2;
-    const lockY = top + 8 * s + lockSize / 2;
+    // A small lock in the top-right corner: pin a card so it survives the next
+    // re-roll and is still here in the next wave's shop. Kept quiet until it is
+    // actually locked, so it never looks like a "cannot buy" mark.
+    const lockSize = Math.round(14 * s);
+    const lockX = right - 7 * s - lockSize / 2;
+    const lockY = top + 7 * s + lockSize / 2;
 
     const lockG = this.add.graphics().setDepth(4);
     const lockIcon = this.add
       .image(lockX, lockY, 'icon-lock')
-      .setDisplaySize(lockSize * 0.8, lockSize * 0.8)
+      .setDisplaySize(lockSize * 0.72, lockSize * 0.72)
       .setDepth(5);
 
     // The price is pinned to the bottom-right corner of the cell, whatever the
@@ -1001,38 +982,72 @@ export class ShopScene extends Phaser.Scene {
       lockIcon.setVisible(usable);
       if (!usable) return;
 
-      lockG.fillStyle(locked ? 0x3a2f10 : 0x141c28, locked ? 1 : 0.8);
+      lockG.fillStyle(locked ? 0x3a2f10 : 0x0b1018, locked ? 0.95 : 0.45);
       lockG.fillRoundedRect(
         lockX - lockSize / 2,
         lockY - lockSize / 2,
         lockSize,
         lockSize,
-        6
+        5
       );
-      lockG.lineStyle(2, locked ? COLORS.gold : 0x3a4450, locked ? 1 : 0.5);
+      lockG.lineStyle(2, locked ? COLORS.gold : 0x4a5a66, locked ? 1 : 0.4);
       lockG.strokeRoundedRect(
         lockX - lockSize / 2,
         lockY - lockSize / 2,
         lockSize,
         lockSize,
-        6
+        5
       );
-      lockIcon.setTint(locked ? COLORS.gold : 0x8fa3b0);
+
+      // Quiet grey while it is a hint; gold only once the card is pinned.
+      lockIcon.setTint(locked ? COLORS.gold : 0x9fb0bb);
+      lockIcon.setAlpha(locked ? 1 : 0.5);
     };
 
     const paint = () => {
       const affordable = this.coins() >= item.price;
       const locked = !!item.locked;
 
+      // The fill is the tier colour dropped almost to black, so a green card is
+      // deep green and a gold one is deep brown even before the border is read.
+      const fill = this.darkTint(color, item.sold ? 0.07 : 0.17);
+
       g.clear();
-      g.fillStyle(item.sold ? 0x101a16 : 0x0f1521, 0.97);
+      g.fillStyle(fill, 1);
       g.fillRoundedRect(left, top, w, h, 12);
-      g.lineStyle(
-        2,
-        item.sold ? 0x39a05a : locked ? COLORS.gold : color,
-        item.sold ? 0.5 : locked ? 0.95 : affordable ? 0.85 : 0.35
-      );
+
+      // A dark band behind the price, so the number is the brightest thing left
+      // in that corner.
+      g.fillStyle(0x03060a, 0.55);
+      g.fillRoundedRect(right - 62 * s, bottom - 18 * s, 56 * s, 16 * s, 6);
+
+      // Thick border with a hairline just inside it: a cut-gem edge.
+      g.lineStyle(3, item.sold ? 0x39a05a : locked ? COLORS.gold : color, item.sold ? 0.5 : 1);
       g.strokeRoundedRect(left, top, w, h, 12);
+      g.lineStyle(1, 0xffffff, 0.1);
+      g.strokeRoundedRect(left + 3, top + 3, w - 6, h - 6, 9);
+
+      // The glow behind the card, growing with the tier.
+      const spread = 3 + item.rank * 2;
+      glowG.clear();
+      if (!item.sold) {
+        glowG.fillStyle(color, 0.05 + item.rank * 0.035);
+        glowG.fillRoundedRect(
+          left - spread,
+          top - spread,
+          w + spread * 2,
+          h + spread * 2,
+          16
+        );
+        glowG.lineStyle(2 + item.rank, color, 0.18 + item.rank * 0.06);
+        glowG.strokeRoundedRect(
+          left - spread,
+          top - spread,
+          w + spread * 2,
+          h + spread * 2,
+          16
+        );
+      }
 
       priceText
         .setVisible(!item.sold)
@@ -1064,6 +1079,15 @@ export class ShopScene extends Phaser.Scene {
     lockZone.on('pointerdown', () => this.toggleLock(index));
 
     this.refs.push({ item, paint });
+  }
+
+  /// A near-black version of a colour: the card's fill is its own tier colour
+  /// dropped to a whisper, never flat grey.
+  darkTint(color, strength) {
+    const r = Math.round(((color >> 16) & 0xff) * strength);
+    const g = Math.round(((color >> 8) & 0xff) * strength);
+    const b = Math.round((color & 0xff) * strength);
+    return (r << 16) | (g << 8) | b;
   }
 
   /// Phaser's basic wrap never breaks a Chinese sentence (there are no spaces
