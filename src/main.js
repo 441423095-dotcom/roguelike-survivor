@@ -16,7 +16,13 @@ import { WeaponScene } from './scenes/WeaponScene.js';
 import { GameOverScene } from './scenes/GameOverScene.js';
 
 // On window so the running game can be inspected from outside the module graph.
-window.game = new Phaser.Game({
+// The page may have already decided this browser cannot draw (no WebGL), and a
+// failed boot should say so instead of leaving a black screen behind.
+function startGame() {
+  if (window.bootBlocked) return;
+
+  try {
+    window.game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'stage',
   // The game owns a dark palette of its own, in both light and dark mode.
@@ -64,5 +70,15 @@ window.game = new Phaser.Game({
     ChoiceScene,
     WeaponScene,
     GameOverScene
-  ]
-});
+      ]
+    });
+  } catch (error) {
+    if (window.gameFail) {
+      window.gameFail(
+        '游戏初始化失败：' + (error && error.message ? error.message : '未知错误')
+      );
+    }
+  }
+}
+
+startGame();

@@ -17,23 +17,71 @@
 </div>
 
 <script>
-  // Called by the title screen once the game is actually on screen.
-  window.gameReady = function () {
-    window.bootDone = true;
+  (function () {
     var box = document.getElementById('boot');
-    if (box) box.style.display = 'none';
-  };
-
-  // Anything that throws before the game is up turns the panel into a message.
-  window.addEventListener('error', function (event) {
-    if (window.bootDone) return;
-
     var label = document.getElementById('boot-msg');
-    if (!label) return;
 
-    label.textContent = '加载出错：' + (event && event.message ? event.message : '脚本未能运行');
-    label.className = 'boot-error';
-  });
+    function fail(message) {
+      if (!label) return;
+      label.textContent = message;
+      label.className = 'boot-error';
+    }
+
+    // main.js calls this when creating the game itself throws.
+    window.gameFail = fail;
+
+    // Called by the title screen once the game is actually on screen.
+    window.gameReady = function () {
+      window.bootDone = true;
+      if (box) box.style.display = 'none';
+    };
+
+    // Anything that throws before the game is up turns the panel into a message.
+    window.addEventListener('error', function (event) {
+      if (window.bootDone) return;
+      fail('加载出错：' + (event && event.message ? event.message : '脚本未能运行'));
+    });
+
+    window.addEventListener('unhandledrejection', function (event) {
+      if (window.bootDone) return;
+      var reason = event && event.reason;
+      fail('加载出错：' + (reason && reason.message ? reason.message : '未知错误'));
+    });
+
+    // Phaser 4 draws with WebGL. A browser that cannot create a WebGL context
+    // would only ever show a black rectangle, so say so instead.
+    try {
+      var probe = document.createElement('canvas');
+      var gl = probe.getContext('webgl2') || probe.getContext('webgl');
+      if (!gl) {
+        window.bootBlocked = true;
+        fail('这个浏览器不支持游戏需要的 WebGL：请用 Safari 或 Chrome 打开，并确认没有开启“锁定模式”或内容拦截。');
+      }
+    } catch (error) {
+      window.bootBlocked = true;
+      fail('这个浏览器无法创建画布，请换用 Safari 或 Chrome 打开本链接。');
+    }
+
+    // A load that silently hangs should not look like a black screen either.
+    setTimeout(function () {
+      if (window.bootDone || window.bootBlocked) return;
+      if (label && label.className === 'boot-error') return;
+      fail('加载超过 10 秒还没完成：可能是网络较慢，或浏览器限制了 WebGL。请刷新一次，或换用 Safari / Chrome 打开。');
+    }, 10000);
+
+    // Tapping the panel retries the whole load.
+    if (box) {
+      box.addEventListener('click', function () {
+        location.reload();
+      });
+    }
+  })();
+</script>
+
+<script nomodule>
+  document.getElementById('boot-msg').textContent =
+    '浏览器版本过旧，请用最新版 Safari 或 Chrome 打开本链接。';
+  document.getElementById('boot-msg').className = 'boot-error';
 </script>
 
 <!-- Phaser is a classic script, not a module: it defines the global `Phaser`.
