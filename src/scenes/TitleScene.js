@@ -14,7 +14,10 @@ import { sharpenText } from '../ui/text.js';
 import { applyCameraZoom, viewSize } from '../ui/view.js';
 
 const GAME_TITLE = '像素弹幕生存';
-const GAME_SUBTITLE = '在无尽的怪潮中，构筑你的奇葩流派';
+const STORY_KICKER = '星尘竞技场';
+const STORY_TEXT =
+  '无尽的怪潮正从数据裂缝中涌出。没有救援，没有终点。' +
+  '你唯一的出路，就是用手中的武器和荒诞的道具，杀出一条血路。';
 const VERSION_LABEL = 'Version 1.0.0';
 
 export class TitleScene extends Phaser.Scene {
@@ -230,14 +233,43 @@ export class TitleScene extends Phaser.Scene {
       lineY + 5 * s
     );
 
+    // The story sits under the wordmark, on a soft scrim so it stays readable
+    // whatever is behind it.
+    const storyTop = titleY + size * 1.02;
+    const storyW = Math.min(W - 56, 330 * s);
+
     this.add
-      .text(W / 2, titleY + size * 0.98, GAME_SUBTITLE, {
+      .text(W / 2, storyTop, STORY_KICKER, {
         fontFamily: FONT,
-        fontSize: `${Math.round(13 * s)}px`,
-        color: '#9fd6e2'
+        fontSize: `${Math.round(12.5 * s)}px`,
+        color: COLORS.accentHex,
+        fontStyle: 'bold'
       })
       .setOrigin(0.5)
       .setDepth(2);
+
+    const story = this.add
+      .text(W / 2, storyTop + 20 * s, STORY_TEXT, {
+        fontFamily: FONT,
+        fontSize: `${Math.round(12.5 * s)}px`,
+        color: '#a8c8d2',
+        align: 'center',
+        wordWrap: { width: storyW, useAdvancedWrap: true },
+        lineSpacing: Math.round(5 * s)
+      })
+      .setOrigin(0.5, 0)
+      .setDepth(2);
+
+    this.add
+      .rectangle(
+        W / 2,
+        story.y + story.height / 2,
+        storyW + 34 * s,
+        story.height + 44 * s,
+        0x04080f,
+        0.42
+      )
+      .setDepth(1);
   }
 
   // ----------------------------------------------------------------- buttons
