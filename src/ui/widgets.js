@@ -56,7 +56,9 @@ export function makeButton(scene, opts) {
     items.push(text);
   }
 
-  const zone = scene.add.zone(x, y, width, height).setInteractive();
+  // The hit area takes the button's depth as well: a sheet drawn over the scene
+  // must never have its dim overlay swallow the taps meant for the button.
+  const zone = scene.add.zone(x, y, width, height).setDepth(depth).setInteractive();
   zone.on('pointerdown', () => {
     if (onPress) onPress();
   });

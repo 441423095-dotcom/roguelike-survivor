@@ -643,6 +643,14 @@ export class ShopScene extends Phaser.Scene {
     panel.lineStyle(2, 0x2bd3c4, 0.4);
     panel.strokeRoundedRect(cx - panelW / 2, cy - panelH / 2, panelW, panelH, 16);
 
+    // A tap on the sheet itself does nothing; only the dim edge closes it, so
+    // a button underneath the overlay always keeps its own tap.
+    this.add
+      .zone(cx, cy, panelW, panelH)
+      .setDepth(21)
+      .setInteractive()
+      .on('pointerdown', () => {});
+
     this.add
       .text(cx, cy - panelH / 2 + 26 * s, target.name, {
         fontFamily: FONT,
@@ -1165,6 +1173,14 @@ export class ShopScene extends Phaser.Scene {
     panel.fillRoundedRect(left, top, panelW, panelH, 16);
     panel.lineStyle(2, rarity.color, 0.55);
     panel.strokeRoundedRect(left, top, panelW, panelH, 16);
+
+    // A tap on the sheet itself does nothing; only the dim edge closes it, so
+    // the buy / lock / close buttons always keep their own taps.
+    this.add
+      .zone(cx, cy, panelW, panelH)
+      .setDepth(21)
+      .setInteractive()
+      .on('pointerdown', () => {});
 
     this.add
       .text(left + 18 * s, top + 32 * s, item.emoji || '❓', {
