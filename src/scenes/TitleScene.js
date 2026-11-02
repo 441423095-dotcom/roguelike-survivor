@@ -73,7 +73,9 @@ export class TitleScene extends Phaser.Scene {
     const btnY = H * 0.575;
     this.buildStart(W, H, s, btnY, btnW, btnH);
 
-    const secY = btnY + btnH / 2 + 30 * s;
+    // The neon frame around the start button needs room to breathe above the
+    // secondary row.
+    const secY = btnY + btnH / 2 + 46 * s;
     this.buildSecondary(W, H, s, secY);
 
     // Star dust is spent here, never inside a run.
@@ -295,24 +297,56 @@ export class TitleScene extends Phaser.Scene {
   // ----------------------------------------------------------------- buttons
 
   buildStart(W, H, s, btnY, btnW, btnH) {
-    const glow = this.add.graphics().setDepth(1);
-    const gx = W / 2 - btnW / 2 - 10;
-    const gy = btnY - btnH / 2 - 10;
-    const gw = btnW + 20;
-    const gh = btnH + 20;
+    // The square neon halo from the arena artwork, kept quiet on purpose: a
+    // chamfered tube with a whisper of glow, breathing rather than blazing.
+    const ring = this.add.graphics().setDepth(1);
 
-    glow.fillStyle(0x39e6cd, 0.05);
-    glow.fillRoundedRect(gx, gy, gw, gh, 22);
-    glow.lineStyle(12, 0x39e6cd, 0.08);
-    glow.strokeRoundedRect(gx, gy, gw, gh, 22);
-    glow.lineStyle(2, 0x39e6cd, 0.6);
-    glow.strokeRoundedRect(gx, gy, gw, gh, 22);
+    const left = W / 2 - btnW / 2 - 26 * s;
+    const right = W / 2 + btnW / 2 + 26 * s;
+    const top = btnY - btnH / 2 - 18 * s;
+    const bottom = btnY + btnH / 2 + 18 * s;
+    const cut = Math.min(28 * s, (bottom - top) * 0.42);
 
-    // The breathing light: the border brightens and dims on its own.
+    const path = () => {
+      ring.beginPath();
+      ring.moveTo(left + cut, top);
+      ring.lineTo(right - cut, top);
+      ring.lineTo(right, top + cut);
+      ring.lineTo(right, bottom - cut);
+      ring.lineTo(right - cut, bottom);
+      ring.lineTo(left + cut, bottom);
+      ring.lineTo(left, bottom - cut);
+      ring.lineTo(left, top + cut);
+      ring.closePath();
+    };
+
+    path();
+    ring.fillStyle(0x071018, 0.2);
+    ring.fillPath();
+
+    // Three passes: a wide haze, a dim mid glow, then the thin tube itself.
+    path();
+    ring.lineStyle(16 * s, 0x2bd3c4, 0.04);
+    ring.strokePath();
+
+    path();
+    ring.lineStyle(5 * s, 0x2bd3c4, 0.11);
+    ring.strokePath();
+
+    path();
+    ring.lineStyle(1.6 * s, 0x39e6cd, 0.4);
+    ring.strokePath();
+
+    // Two short bright ticks on the chamfers, so the frame has an edge without
+    // turning into a light box.
+    ring.lineStyle(2 * s, 0x63ffe0, 0.42);
+    ring.lineBetween(left + cut, top, right - cut, top);
+    ring.lineBetween(left, bottom - cut, left, top + cut);
+
     this.tweens.add({
-      targets: glow,
-      alpha: { from: 0.45, to: 1 },
-      duration: 1500,
+      targets: ring,
+      alpha: { from: 0.6, to: 1 },
+      duration: 2400,
       yoyo: true,
       repeat: -1,
       ease: 'Sine.inOut'
