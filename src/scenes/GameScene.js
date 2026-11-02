@@ -1,0 +1,3054 @@
+// The run itself: a walled arena that fills the panel, waves of monsters walking
+// in from the edges, an auto-aiming weapon, XP gems and upgrades. The bottom band
+// is reserved for the touch controls so nothing is ever drawn over the arena.
+
+import { computeLayout } from '../ui/layout.js';
+import { COLORS, FONT } from '../ui/style.js';
+import { rollCards, UPGRADE_BY_KEY } from '../game/upgrades.js';
+import { rollShopItems, SHOP_REFRESH_COST } from '../game/shop.js';
+import {
+  ITEM_POOL,
+  ITEM_BY_KEY,
+  activeCooldown,
+  frogInterval,
+  teapotInterval
+} from '../game/passives.js';
+import { Sfx, setMusicTrack, duckMusic } from '../game/audio.js';
+import { xpForLevel, weaponDropFactor, weaponDropKey } from '../game/loot.js';
+import {
+  WEAPONS,
+  WEAPON_SLOTS,
+  weaponStats,
+  weaponDef,
+  evolvedWeapon
+} from '../game/weapons.js';
+import { getCharacter } from '../game/characters.js';
+import { loadProgress, recordWave, recordRun } from '../game/progress.js';
+import { sharpenText } from '../ui/text.js';
+import {
+  ENEMY_TYPES,
+  pickEnemyType,
+  waveDuration,
+  waveScaling,
+  waveSpawnPlan,
+  isBossWave
+} from '../game/enemies.js';
+import { haptic } from '../haptics.js';
+
+const DASH_COOLDOWN = 2400;
+const DASH_TIME = 170;
+const BLINK_COOLDOWN = 5000;
+
+export class GameScene extends Phaser.Scene {
+  constructor() {
+    super('Game');
+  }
+
+  create() {
+    this.layout = computeLayout(
+      this.scale.gameSize.width,
+      this.scale.gameSize.height
+    );
+
+    this.character = getCharacter(loadProgress().character);
+
+    this.dead = [];
+    this.pickups = [];
+    this.weaponDrops = [];
+    this.cooldowns = [];
+    this.pending = [];
+    this.shopItems = [];
+    this.pendingBuff = null;
+    this.activeBuff = null;
+    this.shopOpen = false;
+    this.choiceOpen = false;
+    this.weaponChoice = null;
+    this.pausedByUser = false;
+    this.running = true;
+    this.waveEnding = false;
+    this.bossFight = false;
+    this.boss = null;
+    this.invulnUntil = 0;
+    this.lastHurtAt = 0;
+    this.dashUntil = 0;
+    this.dashReadyAt = 0;
+    this.blinkReadyAt = 0;
+    this.hapticAt = 0;
+    this.facing = 0;
+
+    this.joyDir = new Phaser.Math.Vector2(0, 0);
+    this.joyTravel = 0;
+    this.joyOrigin = null;
+    this.joyPointer = null;
+    this.lastDir = new Phaser.Math.Vector2(1, 0);
+    this.dashDir = new Phaser.Math.Vector2(1, 0);
+
+    this.state = {
+      hp: this.character.hp,
+      maxHp: this.character.hp,
+      speed: this.character.speed,
+      damage: this.character.damage,
+      fireInterval: this.character.fireInterval,
+      projectiles: 1,
+      weapons: [
+        { key: 'blaster', level: 1 },
+        { key: 'smg', level: 1 }
+      ],
+      range: 300,
+      bulletSpeed: 480,
+      pickupRadius: 95,
+      regen: 0,
+      armor: 0,
+      lifesteal: 0,
+      critChance: 0,
+      critMult: 2,
+      pierceBonus: 0,
+      slowOnHit: 0,
+      outRegen: 0,
+      level: 1,
+      xp: 0,
+      xpNext: 30,
+      wave: 1,
+      waveLeft: 0,
+      kills: 0,
+      coins: 0,
+      // 生锈的硬币 locks the purse and doubles every drop; both stay neutral
+      // until the trinket is bought.
+      coinCap: Number.POSITIVE_INFINITY,
+      coinMult: 1,
+      // Item bonuses: per-style weapon damage, per-gun synergy, padding on
+      // splash radius, a bonus against slowed enemies and the kill explosion.
+      styleBonus: { bullet: 1, energy: 1, explosive: 1, blade: 1 },
+      weaponSynergy: 0,
+      splashBonus: 0,
+      slowBonus: 0,
+      chainKill: 0,
+      runTime: 0
+    };
+    this.stacks = {};
+
+    // Everything bought in the shop, passive and active, keyed by item and
+    // holding a stack count. The two charge figures are the frog's and the
+    // teapot's own clocks; activeTimers holds each gadget's recharge.
+    this.items = {};
+    this.frogCharge = 0;
+    this.teapotCharge = 0;
+    this.activeTimers = {};
+    this.mines = [];
+    this.turrets = [];
+    this.companions = [];
+
+    // The starting numbers, so runaway stacking can be clamped against them.
+    this.baseStats = {
+      fireInterval: this.state.fireInterval,
+      speed: this.state.speed,
+      damage: this.state.damage
+    };
+
+    this.cameras.main.setBackgroundColor(0x070a10);
+
+    this.buildWorld();
+    this.buildPlayer();
+    this.buildGroups();
+    this.buildControls();
+
+    this.startWave(1);
+    this.scene.launch('Hud');
+    this.cameras.main.fadeIn(320, 7, 10, 16);
+
+    sharpenText(this);
+
+    this.scale.on('resize', this.onResize, this);
+    this.events.once('shutdown', this.onShutdown, this);
+  }
+
+  onShutdown() {
+    this.scale.off('resize', this.onResize, this);
+    this.input.off('pointerdown', this.onPointerDown, this);
+    this.input.off('pointermove', this.onPointerMove, this);
+    this.input.off('pointerup', this.onPointerUp, this);
+    this.input.off('pointerupoutside', this.onPointerUp, this);
+    if (this.spawnTimer) {
+      this.spawnTimer.remove();
+      this.spawnTimer = null;
+    }
+  }
+
+  // ---------------------------------------------------------------- arena
+
+  buildWorld() {
+    const field = this.layout.field;
+
+    this.floor = this.add
+      .tileSprite(0, 0, field.width, field.height, 'floor')
+      .setOrigin(0, 0)
+      .setDepth(-20);
+
+    this.border = this.add.graphics().setDepth(-10);
+    this.drawBorder();
+
+    this.physics.world.setBounds(8, 8, field.width - 16, field.height - 16);
+  }
+
+  drawBorder() {
+    const field = this.layout.field;
+    const g = this.border;
+    g.clear();
+
+    // Pull the floor down a little so bright sprites read against it.
+    g.fillStyle(0x05080d, 0.45);
+    g.fillRect(0, 0, field.width, field.height);
+
+    g.lineStyle(3, 0x1f5f63, 0.55);
+    g.strokeRect(6, 6, field.width - 12, field.height - 12);
+
+    g.lineStyle(1, 0x2bd3c4, 0.3);
+    g.strokeRect(9, 9, field.width - 18, field.height - 18);
+
+    // Corner brackets give the arena a cage feel.
+    const len = Math.min(24, field.width * 0.08);
+    const w = field.width;
+    const h = field.height;
+    g.lineStyle(3, 0x2bd3c4, 0.65);
+    g.beginPath();
+    g.moveTo(11, 11 + len);
+    g.lineTo(11, 11);
+    g.lineTo(11 + len, 11);
+    g.moveTo(w - 11 - len, 11);
+    g.lineTo(w - 11, 11);
+    g.lineTo(w - 11, 11 + len);
+    g.moveTo(11, h - 11 - len);
+    g.lineTo(11, h - 11);
+    g.lineTo(11 + len, h - 11);
+    g.moveTo(w - 11 - len, h - 11);
+    g.lineTo(w - 11, h - 11);
+    g.lineTo(w - 11, h - 11 - len);
+    g.strokePath();
+  }
+
+  buildPlayer() {
+    const field = this.layout.field;
+
+    this.shadow = this.add
+      .ellipse(field.centerX, field.centerY + 15, 30, 12, 0x000000, 0.35)
+      .setDepth(1);
+
+    this.player = this.physics.add.sprite(
+      field.centerX,
+      field.centerY,
+      this.character.texture
+    );
+    this.player.setDepth(12);
+    // The hero texture is 48x48; a 30px square body sits centred inside it.
+    this.player.body.setSize(30, 30, true);
+    this.player.setCollideWorldBounds(true);
+  }
+
+  // ------------------------------------------------------------- entities
+
+  buildGroups() {
+    this.bullets = this.physics.add.group({ allowGravity: false });
+    this.enemies = this.physics.add.group({ allowGravity: false });
+    this.enemyShots = this.physics.add.group({ allowGravity: false });
+
+    this.physics.add.collider(this.enemies, this.enemies);
+    this.physics.add.overlap(
+      this.bullets,
+      this.enemies,
+      this.onBulletHit,
+      undefined,
+      this
+    );
+    this.physics.add.overlap(
+      this.enemies,
+      this.player,
+      this.onEnemyTouch,
+      undefined,
+      this
+    );
+    this.physics.add.overlap(
+      this.enemyShots,
+      this.player,
+      this.onShotTouch,
+      undefined,
+      this
+    );
+  }
+
+  // ------------------------------------------------------------- controls
+
+  buildControls() {
+    this.dashGfx = this.add.graphics().setDepth(20);
+    this.dashIcon = this.add
+      .image(0, 0, 'icon-chevrons-right')
+      .setDepth(20)
+      .setTint(0xffd9a0);
+    this.slotGfx = this.add.graphics().setDepth(20);
+    this.slotIcons = [];
+    // The item column under the weapons, and the recharge arcs drawn over it.
+    this.itemGfx = this.add.graphics().setDepth(20);
+    this.itemIcons = [];
+    this.itemPositions = {};
+    this.chargeGfx = this.add.graphics().setDepth(22);
+    this.skillGfx = this.add.graphics().setDepth(20);
+    this.skillIcon = this.add
+      .image(0, 0, 'icon-zap')
+      .setDepth(20)
+      .setTint(0xa8f0ff);
+
+    this.drawDash();
+    this.drawWeaponSlots();
+    this.drawItemBar();
+    this.drawSkill();
+
+    this.input.on('pointerdown', this.onPointerDown, this);
+    this.input.on('pointermove', this.onPointerMove, this);
+    this.input.on('pointerup', this.onPointerUp, this);
+    this.input.on('pointerupoutside', this.onPointerUp, this);
+  }
+
+  /// The stick is deliberately invisible: you steer by dragging anywhere on the
+  /// screen, and the character moving is the only feedback needed.
+  drawJoystick() {
+    // Intentionally draws nothing.
+  }
+
+  drawDash() {
+    const dash = this.layout.dash;
+    const r = dash.radius;
+    const ratio = this.dashCoolRatio();
+
+    const g = this.dashGfx;
+    g.clear();
+
+    g.fillStyle(0x121a26, 0.95);
+    g.fillCircle(dash.x, dash.y, r);
+    g.lineStyle(2, 0xffb038, ratio > 0 ? 0.28 : 0.75);
+    g.strokeCircle(dash.x, dash.y, r);
+
+    if (ratio > 0) {
+      g.lineStyle(4, 0xffb038, 0.55);
+      g.beginPath();
+      g.arc(
+        dash.x,
+        dash.y,
+        r - 4,
+        -Math.PI / 2,
+        -Math.PI / 2 + Math.PI * 2 * ratio,
+        false
+      );
+      g.strokePath();
+    }
+
+    this.dashIcon.setPosition(dash.x, dash.y);
+    this.dashIcon.setDisplaySize(r * 1.05, r * 1.05);
+    this.dashIcon.setAlpha(ratio > 0 ? 0.35 : 1);
+  }
+
+  /// The blink button: a ring fills as it recharges, and turns bright when the
+  /// jump is ready.
+  drawSkill() {
+    const layout = this.layout;
+    const slot = layout.skill;
+    const g = this.skillGfx;
+    if (!g || !slot) return;
+
+    const charge = 1 - this.blinkCoolRatio();
+    const ready = charge >= 1;
+
+    g.clear();
+    g.fillStyle(0x121a26, ready ? 0.95 : 0.8);
+    g.fillCircle(slot.x, slot.y, slot.radius);
+    g.lineStyle(2, 0xa8f0ff, ready ? 0.9 : 0.3);
+    g.strokeCircle(slot.x, slot.y, slot.radius);
+
+    if (charge > 0) {
+      g.lineStyle(4, 0xa8f0ff, ready ? 0.85 : 0.6);
+      g.beginPath();
+      g.arc(
+        slot.x,
+        slot.y,
+        slot.radius - 4,
+        -Math.PI / 2,
+        -Math.PI / 2 + Math.PI * 2 * charge,
+        false
+      );
+      g.strokePath();
+    }
+
+    this.skillIcon.setPosition(slot.x, slot.y);
+    this.skillIcon.setDisplaySize(slot.radius * 1.1, slot.radius * 1.1);
+    this.skillIcon.setAlpha(ready ? 1 : 0.45);
+  }
+
+  blinkCoolRatio() {
+    return Math.max(0, (this.blinkReadyAt - this.time.now) / BLINK_COOLDOWN);
+  }
+
+  dashCoolRatio() {
+    return Math.max(0, (this.dashReadyAt - this.time.now) / DASH_COOLDOWN);
+  }
+
+  onPointerDown(pointer) {
+    if (!this.running || this.pausedByUser || this.shopOpen || this.choiceOpen)
+      return;
+
+    const skill = this.layout.skill;
+    if (
+      skill &&
+      Phaser.Math.Distance.Between(pointer.x, pointer.y, skill.x, skill.y) <
+        skill.radius * 1.25
+    ) {
+      this.tryBlink();
+      return;
+    }
+
+    const dash = this.layout.dash;
+    if (
+      Phaser.Math.Distance.Between(pointer.x, pointer.y, dash.x, dash.y) <
+      dash.radius * 1.25
+    ) {
+      this.tryDash();
+      return;
+    }
+
+    if (this.joyPointer !== null) return;
+
+    // Anywhere on the screen: the stick appears under the thumb.
+    this.joyPointer = pointer;
+    this.joyOrigin = { x: pointer.x, y: pointer.y };
+    this.joyTravel = 0;
+    this.drawJoystick();
+  }
+
+  onPointerMove(pointer) {
+    if (pointer === this.joyPointer) this.updateJoystick(pointer);
+  }
+
+  onPointerUp(pointer) {
+    if (pointer === this.joyPointer) this.releaseJoystick();
+  }
+
+  updateJoystick(pointer) {
+    if (!this.joyOrigin) return;
+    const dx = pointer.x - this.joyOrigin.x;
+    const dy = pointer.y - this.joyOrigin.y;
+    const len = Math.hypot(dx, dy);
+
+    if (len < 8) {
+      this.joyDir.set(0, 0);
+      this.joyTravel = 0;
+    } else {
+      this.joyDir.set(dx / len, dy / len);
+      this.joyTravel = Math.min(len, this.layout.joystick.radius);
+    }
+    this.drawJoystick();
+  }
+
+  releaseJoystick() {
+    this.joyPointer = null;
+    this.joyOrigin = null;
+    this.joyTravel = 0;
+    this.joyDir.set(0, 0);
+    this.drawJoystick();
+  }
+
+  tryDash() {
+    if (this.time.now < this.dashReadyAt) return;
+
+    this.dashDir.copy(this.joyDir.lengthSq() > 0.01 ? this.joyDir : this.lastDir);
+    this.dashUntil = this.time.now + DASH_TIME;
+    this.dashReadyAt = this.time.now + DASH_COOLDOWN;
+
+    this.trail();
+    haptic('dash');
+    Sfx.dash();
+  }
+
+  trail() {
+    const ghost = this.add
+      .image(this.player.x, this.player.y, this.character.texture)
+      .setDepth(4)
+      .setAlpha(0.5)
+      .setTint(0x39e6cd);
+    this.tweens.add({
+      targets: ghost,
+      alpha: 0,
+      scale: 0.7,
+      duration: 260,
+      onComplete: () => ghost.destroy()
+    });
+  }
+
+  /// A short blink in the direction you are steering, with a brief moment of
+  /// invulnerability. It recharges on its own clock, shown as a ring around the
+  /// button.
+  tryBlink() {
+    if (!this.running || this.time.now < this.blinkReadyAt) return;
+
+    const field = this.layout.field;
+    const dir =
+      this.joyDir.lengthSq() > 0.01 ? this.joyDir.clone() : this.lastDir.clone();
+    if (dir.lengthSq() < 0.0001) dir.set(1, 0);
+    dir.normalize();
+
+    const fromX = this.player.x;
+    const fromY = this.player.y;
+    const toX = Phaser.Math.Clamp(fromX + dir.x * 150, 26, field.width - 26);
+    const toY = Phaser.Math.Clamp(fromY + dir.y * 150, 26, field.height - 26);
+
+    this.blinkReadyAt = this.time.now + BLINK_COOLDOWN;
+    this.invulnUntil = Math.max(this.invulnUntil, this.time.now + 320);
+
+    const ghost = this.add
+      .image(fromX, fromY, this.character.texture)
+      .setDepth(12)
+      .setAlpha(0.55)
+      .setTint(0xa8f0ff);
+    this.tweens.add({
+      targets: ghost,
+      alpha: 0,
+      scale: 0.7,
+      duration: 260,
+      onComplete: () => ghost.destroy()
+    });
+
+    // A streak plus a row of after-images, so the blink reads as a dash with a
+    // trail rather than a teleport.
+    const streak = this.add.graphics().setDepth(11);
+    streak.lineStyle(7, 0xa8f0ff, 0.45);
+    streak.lineBetween(fromX, fromY, toX, toY);
+    this.tweens.add({
+      targets: streak,
+      alpha: 0,
+      duration: 240,
+      onComplete: () => streak.destroy()
+    });
+
+    const trailSteps = 5;
+    for (let i = 1; i <= trailSteps; i++) {
+      const t = i / (trailSteps + 1);
+      const after = this.add
+        .image(
+          fromX + (toX - fromX) * t,
+          fromY + (toY - fromY) * t,
+          this.character.texture
+        )
+        .setDepth(11)
+        .setAlpha(0.5 * (1 - t))
+        .setTint(0xa8f0ff);
+
+      this.tweens.add({
+        targets: after,
+        alpha: 0,
+        scale: 0.65,
+        duration: 240 + 160 * (1 - t),
+        onComplete: () => after.destroy()
+      });
+    }
+
+    this.player.setPosition(toX, toY);
+    if (this.player.body) this.player.body.reset(toX, toY);
+
+    const ring = this.add
+      .circle(toX, toY, 16, 0xa8f0ff, 0.5)
+      .setDepth(12)
+      .setScale(0.6);
+    this.tweens.add({
+      targets: ring,
+      scale: 2.4,
+      alpha: 0,
+      duration: 260,
+      onComplete: () => ring.destroy()
+    });
+
+    haptic('dash');
+    Sfx.blink();
+    this.drawSkill();
+  }
+
+  // ----------------------------------------------------------------- frame
+
+  update(time, delta) {
+    this.flushDead();
+    if (!this.running) return;
+    if (!this.player || !this.player.active) return;
+
+    if (this.joyPointer && !this.joyPointer.isDown) this.releaseJoystick();
+
+    const dt = Math.min(delta, 48) / 1000;
+    this.state.runTime += dt;
+
+    this.updateMovement(time);
+    this.updateFiring(delta);
+    this.updateEnemies(delta);
+    this.updatePickups(dt);
+    this.updateWeaponDrops();
+    this.updateBullets(delta);
+    this.updateShots(delta);
+    this.updateWave(dt);
+    this.updateRegen(dt);
+    this.updateItems(dt);
+    this.updateMines(dt);
+    this.updateTurrets(delta);
+    this.updateCompanions(delta);
+
+    this.drawDash();
+    this.drawSkill();
+    this.drawItemCharges();
+
+    this.shadow.setPosition(this.player.x, this.player.y + 15);
+  }
+
+  updateMovement(time) {
+    const dashing = time < this.dashUntil;
+    const dir = dashing ? this.dashDir : this.joyDir;
+    const speed = this.state.speed * (dashing ? 3.2 : 1);
+
+    if (dir.lengthSq() < 0.0001) {
+      this.player.setVelocity(0, 0);
+    } else {
+      this.player.setVelocity(dir.x * speed, dir.y * speed);
+      if (!dashing) this.lastDir.copy(dir);
+    }
+
+    const blinking = time < this.invulnUntil;
+    this.player.setAlpha(blinking ? (Math.floor(time / 90) % 2 === 0 ? 0.4 : 1) : 1);
+  }
+
+  updateFiring(delta) {
+    const weapons = this.state.weapons;
+
+    for (let i = 0; i < weapons.length; i++) {
+      const stats = weaponStats(weapons[i], this.state);
+      if (!stats) continue;
+
+      this.cooldowns[i] = (this.cooldowns[i] || 0) - delta;
+      if (this.cooldowns[i] > 0) continue;
+
+      const target = this.nearestEnemy(stats.range);
+      if (!target) {
+        this.cooldowns[i] = 90;
+        continue;
+      }
+
+      this.fireWeapon(stats, target);
+      this.cooldowns[i] = stats.interval;
+    }
+  }
+
+  nearestEnemy(range) {
+    let best = null;
+    let bestDist = range;
+
+    for (const enemy of this.enemies.getChildren()) {
+      if (!enemy.active) continue;
+      const d = Phaser.Math.Distance.Between(
+        this.player.x,
+        this.player.y,
+        enemy.x,
+        enemy.y
+      );
+      if (d < bestDist) {
+        bestDist = d;
+        best = enemy;
+      }
+    }
+    return best;
+  }
+
+  fireWeapon(stats, target) {
+    const base = Phaser.Math.Angle.Between(
+      this.player.x,
+      this.player.y,
+      target.x,
+      target.y
+    );
+    this.facing = base;
+
+    const count = stats.count;
+    for (let i = 0; i < count; i++) {
+      const angle = base + (i - (count - 1) / 2) * stats.spread;
+      const bullet = this.bullets.create(
+        this.player.x + Math.cos(angle) * 20,
+        this.player.y + Math.sin(angle) * 20,
+        stats.def.texture
+      );
+      if (!bullet) continue;
+
+      bullet.setDepth(7);
+      bullet.setRotation(angle);
+      bullet.body.setCircle(stats.def.bodyRadius, stats.def.bodyOffset, stats.def.bodyOffset);
+      bullet.setVelocity(
+        Math.cos(angle) * stats.speed,
+        Math.sin(angle) * stats.speed
+      );
+      bullet.setData('damage', stats.damage);
+      bullet.setData('pierce', (stats.pierce || 0) + this.state.pierceBonus);
+      bullet.setData('slow', stats.slow || 0);
+      bullet.setData('splash', stats.splash || 0);
+      bullet.setData('hits', []);
+      bullet.setData('age', 0);
+    }
+
+    Sfx.shoot();
+
+    const flash = this.add
+      .circle(
+        this.player.x + Math.cos(base) * 18,
+        this.player.y + Math.sin(base) * 18,
+        8,
+        stats.def.color,
+        0.85
+      )
+      .setDepth(6);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      scale: 1.9,
+      duration: 130,
+      onComplete: () => flash.destroy()
+    });
+  }
+
+  updateEnemies(delta) {
+    const px = this.player.x;
+    const py = this.player.y;
+
+    for (const enemy of this.enemies.getChildren()) {
+      if (!enemy.active || !enemy.body) continue;
+
+      const angle = Math.atan2(py - enemy.y, px - enemy.x);
+      const dist = Math.hypot(px - enemy.x, py - enemy.y);
+      const slowed = (enemy.getData('slowUntil') || 0) > this.time.now;
+      const speed = (enemy.getData('speed') || 60) * (slowed ? 0.6 : 1);
+
+      // Enemies standing on top of the player turn see-through, so she is never
+      // lost in the crowd.
+      enemy.setAlpha(dist < 54 ? 0.55 : 1);
+      const behaviour = enemy.getData('behaviour') || 'chase';
+
+      if (behaviour === 'boss') {
+        this.updateBoss(enemy, delta);
+      } else if (behaviour === 'ranged') {
+        const near = enemy.getData('keepNear') || 150;
+        const far = enemy.getData('keepFar') || 250;
+
+        if (dist > far) {
+          enemy.body.velocity.set(
+            Math.cos(angle) * speed,
+            Math.sin(angle) * speed
+          );
+        } else if (dist < near) {
+          enemy.body.velocity.set(
+            -Math.cos(angle) * speed,
+            -Math.sin(angle) * speed
+          );
+        } else {
+          // Hold the band but keep drifting inwards: the ring tightens instead
+          // of the shooter wandering around the player.
+          const strafe = enemy.getData('strafe') || 1;
+          const side = angle + (Math.PI / 2) * strafe * 0.25;
+          enemy.body.velocity.set(
+            Math.cos(side) * speed * 0.35,
+            Math.sin(side) * speed * 0.35
+          );
+        }
+
+        const timer = (enemy.getData('shootTimer') || 0) - delta;
+        if (dist < 520 && timer <= 0) {
+          this.fireEnemyShot(enemy);
+          enemy.setData('shootInterval', enemy.getData('shootInterval') || 1900);
+          enemy.setData('shootTimer', enemy.getData('shootInterval'));
+        } else {
+          enemy.setData('shootTimer', timer);
+        }
+      } else {
+        // Predictive chase: aim where the player is going, not where she was,
+        // and weave slightly so the crowd flanks instead of filing in.
+        const lead = enemy.getData('lead') || 0.12;
+        const body = this.player.body;
+        const vx = body ? body.velocity.x : 0;
+        const vy = body ? body.velocity.y : 0;
+
+        const targetX = px + vx * lead;
+        const targetY = py + vy * lead;
+
+        let chaseAngle = Math.atan2(targetY - enemy.y, targetX - enemy.x);
+        const weave = enemy.getData('weave') || 0;
+
+        if (weave > 0) {
+          chaseAngle +=
+            Math.sin(this.time.now / 520 + (enemy.getData('phase') || 0)) * weave;
+        }
+
+        enemy.body.velocity.set(
+          Math.cos(chaseAngle) * speed,
+          Math.sin(chaseAngle) * speed
+        );
+      }
+
+      const aura = enemy.getData('aura');
+      if (aura) aura.setPosition(enemy.x, enemy.y);
+    }
+  }
+
+  /// Enemy fire: a visible magenta orb on a slow enough arc that the player can
+  // step out of it, or dash straight through it.
+  fireEnemyShot(enemy) {
+    const angle = Phaser.Math.Angle.Between(
+      enemy.x,
+      enemy.y,
+      this.player.x,
+      this.player.y
+    );
+
+    this.spawnOrb(enemy.x, enemy.y, angle, 205, enemy.getData('shotDamage') || 7);
+
+    const flash = this.add
+      .circle(enemy.x, enemy.y, 9, 0xff3d8b, 0.6)
+      .setDepth(4);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      scale: 1.9,
+      duration: 200,
+      onComplete: () => flash.destroy()
+    });
+  }
+
+  spawnOrb(x, y, angle, speed, damage) {
+    const shot = this.enemyShots.create(
+      x + Math.cos(angle) * 16,
+      y + Math.sin(angle) * 16,
+      'orb'
+    );
+    if (!shot) return;
+
+    shot.setDepth(6);
+    shot.body.setCircle(8, 4, 4);
+    shot.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
+    shot.setData('damage', damage);
+    shot.setData('age', 0);
+  }
+
+  /// The boss: slow chase, then alternating between a telegraphed charge and a
+  /// ring of orbs. Both windows stop it dead for a moment so they are readable.
+  updateBoss(boss, delta) {
+    const now = this.time.now;
+    const windupUntil = boss.getData('windupUntil') || 0;
+    const chargeUntil = boss.getData('chargeUntil') || 0;
+    const stunUntil = boss.getData('stunUntil') || 0;
+
+    if (now < windupUntil) {
+      boss.body.velocity.set(0, 0);
+      return;
+    }
+
+    if (now < chargeUntil) {
+      const angle = boss.getData('chargeAngle') || 0;
+      boss.body.velocity.set(Math.cos(angle) * 560, Math.sin(angle) * 560);
+      return;
+    }
+
+    if (now < stunUntil) {
+      boss.body.velocity.set(0, 0);
+      return;
+    }
+
+    const angle = Math.atan2(this.player.y - boss.y, this.player.x - boss.x);
+    const speed = boss.getData('speed') || 52;
+    boss.body.velocity.set(Math.cos(angle) * speed, Math.sin(angle) * speed);
+
+    const timer = (boss.getData('actionTimer') || 0) - delta;
+    boss.setData('actionTimer', timer);
+    if (timer > 0) return;
+
+    if ((boss.getData('nextAction') || 'barrage') === 'charge') {
+      boss.setData('nextAction', 'barrage');
+      boss.setData('windupUntil', now + 520);
+      boss.setData('chargeUntil', now + 520 + 560);
+      boss.setData('stunUntil', now + 520 + 560 + 700);
+      boss.setData('chargeAngle', angle);
+      boss.setData('actionTimer', 2200);
+
+      boss.setTint(0xff9db0);
+      const sprite = boss;
+      this.time.delayedCall(520, () => {
+        if (sprite.active) sprite.clearTint();
+      });
+      haptic('charge');
+    } else {
+      boss.setData('nextAction', 'charge');
+      boss.setData('windupUntil', now + 420);
+      boss.setData('actionTimer', 2400);
+
+      const sprite = boss;
+      this.time.delayedCall(430, () => {
+        if (sprite.active && this.running) this.bossBarrage(sprite);
+      });
+    }
+  }
+
+  bossBarrage(boss) {
+    const angle = Phaser.Math.Angle.Between(
+      boss.x,
+      boss.y,
+      this.player.x,
+      this.player.y
+    );
+    const count = 12;
+
+    for (let i = 0; i < count; i++) {
+      this.spawnOrb(
+        boss.x,
+        boss.y,
+        angle + (i / count) * Math.PI * 2,
+        185,
+        boss.getData('shotDamage') || 12
+      );
+    }
+
+    const flash = this.add.circle(boss.x, boss.y, 26, 0xff3d6e, 0.5).setDepth(4);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      scale: 2.2,
+      duration: 320,
+      onComplete: () => flash.destroy()
+    });
+    haptic('impact');
+  }
+
+  onShotTouch(a, b) {
+    const shot = a === this.player ? b : a;
+    if (!this.running || !shot || shot === this.player || !shot.active) return;
+
+    const now = this.time.now;
+    // Dashing carries the player clean through enemy fire, and the hurt
+    // recovery window does the same: neither one takes the hit.
+    if (now < this.dashUntil || now < this.invulnUntil) return;
+
+    const damage = shot.getData('damage') || 7;
+    this.spawnBurst(shot.x, shot.y, 0xff3d8b, 4);
+    this.kill(shot);
+    this.hurt(damage);
+  }
+
+  updateShots(delta) {
+    const field = this.layout.field;
+
+    for (const shot of this.enemyShots.getChildren()) {
+      if (!shot.active) continue;
+      const age = (shot.getData('age') || 0) + delta;
+      shot.setData('age', age);
+
+      if (
+        age > 5000 ||
+        shot.x < -40 ||
+        shot.y < -40 ||
+        shot.x > field.width + 40 ||
+        shot.y > field.height + 40
+      ) {
+        this.kill(shot);
+      }
+    }
+  }
+
+  updatePickups(dt) {
+    const px = this.player.x;
+    const py = this.player.y;
+    const radius = this.state.pickupRadius;
+
+    for (let i = this.pickups.length - 1; i >= 0; i--) {
+      const pickup = this.pickups[i];
+      if (!pickup.active) {
+        this.pickups.splice(i, 1);
+        continue;
+      }
+
+      const dx = px - pickup.x;
+      const dy = py - pickup.y;
+      const dist = Math.hypot(dx, dy) || 1;
+
+      if (dist < radius) {
+        const pull = Phaser.Math.Clamp(1 - dist / radius, 0.2, 1);
+        const speed = 170 + 430 * pull;
+        pickup.x += (dx / dist) * speed * dt;
+        pickup.y += (dy / dist) * speed * dt;
+      }
+
+      if (dist < 20) {
+        const value = pickup.getData('value') || 1;
+        if (pickup.getData('kind') === 'coin') {
+          this.addCoins(value);
+          Sfx.coin();
+        } else {
+          this.addXp(value);
+          Sfx.gem();
+        }
+        this.hapticOnce('pickup', 70);
+        pickup.destroy();
+        this.pickups.splice(i, 1);
+      }
+    }
+  }
+
+  updateBullets(delta) {
+    const field = this.layout.field;
+
+    for (const bullet of this.bullets.getChildren()) {
+      if (!bullet.active) continue;
+      const age = (bullet.getData('age') || 0) + delta;
+      bullet.setData('age', age);
+
+      if (
+        age > 1700 ||
+        bullet.x < -30 ||
+        bullet.y < -30 ||
+        bullet.x > field.width + 30 ||
+        bullet.y > field.height + 30
+      ) {
+        this.kill(bullet);
+      }
+    }
+  }
+
+  updateWave(dt) {
+    if (this.waveEnding || this.bossFight) return;
+    this.state.waveLeft -= dt;
+    if (this.state.waveLeft <= 0) {
+      this.state.waveLeft = 0;
+      this.endWave();
+    }
+  }
+
+  updateRegen(dt) {
+    const s = this.state;
+    if (s.hp >= s.maxHp) return;
+
+    if (s.regen > 0) {
+      s.hp = Math.min(s.maxHp, s.hp + s.regen * dt);
+    }
+
+    // "Out of combat" healing only starts after a few quiet seconds.
+    if (s.outRegen > 0 && this.time.now - this.lastHurtAt > 3000) {
+      s.hp = Math.min(s.maxHp, s.hp + s.outRegen * dt);
+    }
+  }
+
+  // ----------------------------------------------------------------- items
+
+  /// Everything the shop sold, ticked once a frame. Passive items run their own
+  /// little clocks; active items recharge and fire themselves when ready.
+  updateItems(dt) {
+    const owned = this.items;
+    if (!owned) return;
+
+    if (owned.frog) {
+      const moving =
+        this.joyDir.lengthSq() > 0.01 || this.time.now < this.dashUntil;
+      if (moving) this.frogCharge += dt;
+
+      if (this.frogCharge >= frogInterval(owned.frog)) {
+        this.frogCharge = 0;
+        this.fart();
+      }
+    }
+
+    if (owned.teapot) {
+      this.teapotCharge += dt;
+      const interval = teapotInterval(owned.teapot);
+
+      if (this.teapotCharge >= interval) {
+        this.teapotCharge -= interval;
+        this.summonMouse();
+      }
+    }
+
+    for (const key of Object.keys(owned)) {
+      const def = ITEM_BY_KEY[key];
+      if (!def || !def.active) continue;
+
+      this.activeTimers[key] = (this.activeTimers[key] || 0) - dt;
+      if (this.activeTimers[key] > 0) continue;
+
+      this.activeTimers[key] = activeCooldown(key, owned[key]);
+      this.triggerActive(key, owned[key]);
+    }
+  }
+
+  triggerActive(key, stacks) {
+    if (key === 'flamer') this.burstFlame(stacks);
+    else if (key === 'mine') this.dropMine();
+    else if (key === 'totem') this.healNow(12 + 4 * (stacks - 1));
+    else if (key === 'emp') this.burstEmp(stacks);
+  }
+
+  /// 固定炮塔: one deployment per stack, planted around the player as the wave
+  /// begins and packed away the moment it ends.
+  spawnWaveTurrets() {
+    const stacks = this.items ? this.items.turret || 0 : 0;
+    if (stacks <= 0) return;
+
+    const count = Math.min(2, stacks);
+    const field = this.layout.field;
+    const base = Math.random() * Math.PI * 2;
+
+    for (let i = 0; i < count; i++) {
+      const angle = base + (i / count) * Math.PI * 2;
+      const x = Phaser.Math.Clamp(
+        this.player.x + Math.cos(angle) * 46,
+        28,
+        field.width - 28
+      );
+      const y = Phaser.Math.Clamp(
+        this.player.y + Math.sin(angle) * 46,
+        28,
+        field.height - 28
+      );
+
+      const turret = this.add.image(x, y, 'turret').setDepth(4).setScale(0.2);
+      turret.setData('cool', 400);
+      turret.setData('stacks', stacks);
+
+      this.tweens.add({
+        targets: turret,
+        scale: 1,
+        duration: 220,
+        ease: 'Back.out'
+      });
+
+      this.turrets.push(turret);
+      this.spawnBurst(x, y, 0x39e6cd, 4);
+    }
+
+    Sfx.buy();
+  }
+
+  clearTurrets() {
+    for (const turret of this.turrets) {
+      if (!turret.active) continue;
+      this.tweens.killTweensOf(turret);
+      this.spawnBurst(turret.x, turret.y, 0x39e6cd, 4);
+      turret.destroy();
+    }
+    this.turrets = [];
+  }
+
+  updateTurrets(delta) {
+    if (this.turrets.length === 0) return;
+
+    for (let i = this.turrets.length - 1; i >= 0; i--) {
+      const turret = this.turrets[i];
+      if (!turret.active) {
+        this.turrets.splice(i, 1);
+        continue;
+      }
+
+      const target = this.nearestEnemyFrom(turret.x, turret.y, 300);
+      if (!target) continue;
+
+      turret.setRotation(
+        Phaser.Math.Angle.Between(turret.x, turret.y, target.x, target.y) +
+          Math.PI / 2
+      );
+
+      const cool = (turret.getData('cool') || 0) - delta;
+      if (cool > 0) {
+        turret.setData('cool', cool);
+        continue;
+      }
+
+      const stacks = turret.getData('stacks') || 1;
+      turret.setData('cool', Math.max(280, 620 - 120 * (stacks - 1)));
+      this.fireTurret(turret, target, stacks);
+    }
+  }
+
+  fireTurret(turret, target, stacks) {
+    if (!this.running) return;
+
+    const angle = Phaser.Math.Angle.Between(
+      turret.x,
+      turret.y,
+      target.x,
+      target.y
+    );
+
+    const bullet = this.bullets.create(
+      turret.x + Math.cos(angle) * 14,
+      turret.y + Math.sin(angle) * 14,
+      'bullet'
+    );
+    if (!bullet) return;
+
+    bullet.setDepth(7);
+    bullet.setRotation(angle);
+    bullet.body.setCircle(5, 3, 3);
+    bullet.setVelocity(Math.cos(angle) * 580, Math.sin(angle) * 580);
+    bullet.setData('damage', this.state.damage * 0.5 * stacks);
+    bullet.setData('pierce', 0);
+    bullet.setData('slow', 0);
+    bullet.setData('splash', 0);
+    bullet.setData('hits', []);
+    bullet.setData('age', 0);
+  }
+
+  // ------------------------------------------------------------ companions
+
+  /// Keeps one visible entity per summon item — the pet rat, the orbiting orb,
+  /// the guard drone. Rebuilt whenever a summon item is bought.
+  syncCompanions() {
+    for (const companion of this.companions) {
+      if (companion.sprite) {
+        this.tweens.killTweensOf(companion.sprite);
+        companion.sprite.destroy();
+      }
+      if (companion.glow) companion.glow.destroy();
+      if (companion.body) companion.body.destroy();
+    }
+    this.companions = [];
+
+    const pets = Math.min(2, this.items.pet || 0);
+    for (let i = 0; i < pets; i++) {
+      const sprite = this.add
+        .image(this.player.x, this.player.y + 20, 'mouse')
+        .setDepth(11)
+        .setTint(0xffd166)
+        .setScale(0.95);
+
+      this.companions.push({
+        kind: 'pet',
+        sprite,
+        phase: Math.random() * Math.PI * 2,
+        state: 'follow',
+        readyAt: 0
+      });
+    }
+
+    const orbs = Math.min(2, this.items.orb || 0);
+    for (let i = 0; i < orbs; i++) {
+      const glow = this.add
+        .circle(this.player.x, this.player.y, 14, 0x8fd8ff, 0.18)
+        .setDepth(10);
+      const sprite = this.add
+        .circle(this.player.x, this.player.y, 7, 0x8fd8ff, 0.95)
+        .setDepth(11);
+
+      this.companions.push({
+        kind: 'orb',
+        sprite,
+        glow,
+        angle: (i / Math.max(1, orbs)) * Math.PI * 2,
+        readyAt: 0
+      });
+    }
+
+    const drones = Math.min(2, this.items.drone || 0);
+    for (let i = 0; i < drones; i++) {
+      const body = this.add
+        .rectangle(this.player.x, this.player.y - 40, 18, 8, 0x1b2634)
+        .setStrokeStyle(2, 0x63ffe0)
+        .setDepth(11);
+      const sprite = this.add
+        .circle(this.player.x, this.player.y - 40, 5, 0x63ffe0, 0.95)
+        .setDepth(12);
+
+      this.companions.push({
+        kind: 'drone',
+        sprite,
+        body,
+        angle: i * Math.PI,
+        readyAt: 0
+      });
+    }
+  }
+
+  updateCompanions(delta) {
+    if (this.companions.length === 0) return;
+
+    const px = this.player.x;
+    const py = this.player.y;
+
+    for (const companion of this.companions) {
+      if (companion.kind === 'pet') this.updatePet(companion, delta, px, py);
+      else if (companion.kind === 'orb') this.updateOrb(companion, delta, px, py);
+      else if (companion.kind === 'drone') {
+        this.updateDrone(companion, delta, px, py);
+      }
+    }
+  }
+
+  /// 宠物鼠: trots around the player, then leaps at anything close and bites it
+  /// before trotting back.
+  updatePet(pet, delta, px, py) {
+    if (pet.state === 'leap') return;
+
+    const target = this.nearestEnemyFrom(px, py, 165);
+
+    if (target && this.time.now >= pet.readyAt) {
+      pet.state = 'leap';
+      pet.readyAt = this.time.now + 1000;
+
+      const tx = target.x;
+      const ty = target.y;
+
+      this.tweens.add({
+        targets: pet.sprite,
+        x: tx,
+        y: ty,
+        scale: 1.25,
+        duration: 180,
+        ease: 'Quad.out',
+        onComplete: () => {
+          if (target.active && this.running) {
+            this.damageEnemy(target, this.state.damage * 0.9);
+            this.spawnBurst(tx, ty, 0xffd166, 4);
+          }
+
+          this.tweens.add({
+            targets: pet.sprite,
+            scale: 0.95,
+            duration: 160,
+            onComplete: () => {
+              pet.state = 'follow';
+            }
+          });
+        }
+      });
+      return;
+    }
+
+    pet.phase += delta / 650;
+    const tx = px + Math.cos(pet.phase) * 34;
+    const ty = py + Math.sin(pet.phase) * 20 + 12;
+    const k = Math.min(1, delta / 90);
+
+    pet.sprite.x += (tx - pet.sprite.x) * k;
+    pet.sprite.y += (ty - pet.sprite.y) * k;
+  }
+
+  /// 环绕光球: circles the player and burns whatever it touches.
+  updateOrb(orb, delta, px, py) {
+    orb.angle += delta * 0.0024;
+
+    const x = px + Math.cos(orb.angle) * 58;
+    const y = py + Math.sin(orb.angle) * 46;
+
+    orb.sprite.setPosition(x, y);
+    if (orb.glow) orb.glow.setPosition(x, y);
+
+    if (this.time.now < orb.readyAt) return;
+
+    for (const enemy of this.enemies.getChildren()) {
+      if (!enemy.active) continue;
+      if (Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y) > 22) continue;
+
+      orb.readyAt = this.time.now + 260;
+      this.damageEnemy(enemy, this.state.damage * 0.5);
+      this.spawnBurst(x, y, 0x8fd8ff, 3);
+      break;
+    }
+  }
+
+  /// 守卫无人机: hovers over the player and cuts down the nearest enemy with a
+  /// visible beam.
+  updateDrone(drone, delta, px, py) {
+    drone.angle += delta * 0.0012;
+
+    const x = px + Math.cos(drone.angle) * 44;
+    const y = py - 38 + Math.sin(drone.angle * 1.6) * 12;
+
+    if (drone.body) drone.body.setPosition(x, y);
+    if (drone.sprite) drone.sprite.setPosition(x, y);
+
+    if (this.time.now < drone.readyAt) return;
+
+    const target = this.nearestEnemyFrom(x, y, 340);
+    if (!target) return;
+
+    drone.readyAt = this.time.now + 700;
+
+    const beam = this.add.graphics().setDepth(11);
+    beam.lineStyle(3, 0x63ffe0, 0.75);
+    beam.lineBetween(x, y, target.x, target.y);
+    this.tweens.add({
+      targets: beam,
+      alpha: 0,
+      duration: 140,
+      onComplete: () => beam.destroy()
+    });
+
+    this.damageEnemy(target, this.state.damage * 0.45);
+    Sfx.hit();
+  }
+
+  /// Nearest live enemy to an arbitrary point, used by turrets and companions.
+  nearestEnemyFrom(x, y, range) {
+    let best = null;
+    let bestDist = range;
+
+    for (const enemy of this.enemies.getChildren()) {
+      if (!enemy.active) continue;
+      const d = Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y);
+      if (d < bestDist) {
+        bestDist = d;
+        best = enemy;
+      }
+    }
+    return best;
+  }
+
+  /// 喷火器: a ring of fire around the player.
+  burstFlame(stacks) {
+    const x = this.player.x;
+    const y = this.player.y;
+    const radius = 110 + 20 * stacks;
+    const damage = this.state.damage * (0.5 + 0.2 * stacks);
+
+    const ring = this.add.circle(x, y, radius * 0.4, 0xff7a1f, 0.28).setDepth(6);
+    this.tweens.add({
+      targets: ring,
+      scale: 2.2,
+      alpha: 0,
+      duration: 420,
+      onComplete: () => ring.destroy()
+    });
+
+    this.spawnBurst(x, y, 0xff9a3f, 8);
+
+    for (const enemy of this.enemies.getChildren()) {
+      if (!enemy.active) continue;
+      if (Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y) > radius) continue;
+      this.damageEnemy(enemy, damage);
+    }
+
+    Sfx.flame();
+  }
+
+  /// 便携地雷: a little charge left on the floor.
+  dropMine() {
+    const mine = this.add
+      .circle(this.player.x, this.player.y, 7, 0xff5a72, 0.9)
+      .setDepth(4);
+    mine.setData('age', 0);
+    this.mines.push(mine);
+
+    this.tweens.add({
+      targets: mine,
+      alpha: 0.35,
+      duration: 380,
+      yoyo: true,
+      repeat: -1
+    });
+
+    Sfx.click();
+  }
+
+  updateMines(dt) {
+    for (let i = this.mines.length - 1; i >= 0; i--) {
+      const mine = this.mines[i];
+      if (!mine.active) {
+        this.mines.splice(i, 1);
+        continue;
+      }
+
+      const age = (mine.getData('age') || 0) + dt;
+      mine.setData('age', age);
+
+      let trigger = age > 8;
+      if (!trigger) {
+        for (const enemy of this.enemies.getChildren()) {
+          if (!enemy.active) continue;
+          const d = Phaser.Math.Distance.Between(
+            mine.x,
+            mine.y,
+            enemy.x,
+            enemy.y
+          );
+          if (d < 34) {
+            trigger = true;
+            break;
+          }
+        }
+      }
+
+      if (!trigger) continue;
+      this.mines.splice(i, 1);
+      this.explodeMine(mine);
+    }
+  }
+
+  explodeMine(mine) {
+    const x = mine.x;
+    const y = mine.y;
+    this.tweens.killTweensOf(mine);
+    mine.destroy();
+
+    const radius = 76;
+    const damage = this.state.damage * 1.3;
+
+    const ring = this.add.circle(x, y, radius * 0.4, 0xffb038, 0.35).setDepth(6);
+    this.tweens.add({
+      targets: ring,
+      scale: 2.2,
+      alpha: 0,
+      duration: 320,
+      onComplete: () => ring.destroy()
+    });
+
+    this.spawnBurst(x, y, 0xff7a1f, 10);
+
+    for (const enemy of this.enemies.getChildren()) {
+      if (!enemy.active) continue;
+      if (Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y) > radius) continue;
+      this.damageEnemy(enemy, damage);
+    }
+
+    Sfx.mine();
+  }
+
+  /// 电磁脉冲: a shockwave that damages and slows the whole crowd.
+  burstEmp(stacks) {
+    const x = this.player.x;
+    const y = this.player.y;
+    const radius = 210 + 30 * stacks;
+    const damage = this.state.damage * (0.45 + 0.15 * stacks);
+
+    const ring = this.add.circle(x, y, radius * 0.35, 0x8fd8ff, 0.25).setDepth(6);
+    this.tweens.add({
+      targets: ring,
+      scale: 3,
+      alpha: 0,
+      duration: 520,
+      onComplete: () => ring.destroy()
+    });
+
+    for (const enemy of this.enemies.getChildren()) {
+      if (!enemy.active) continue;
+      if (Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y) > radius) continue;
+
+      enemy.setData('slowUntil', this.time.now + 3000);
+      this.damageEnemy(enemy, damage);
+    }
+
+    Sfx.zap();
+  }
+
+  healNow(amount) {
+    const before = this.state.hp;
+    this.state.hp = Math.min(this.state.maxHp, this.state.hp + amount);
+    if (this.state.hp > before) {
+      this.notify('+生命', this.player.x, this.player.y);
+    }
+    Sfx.heal();
+  }
+
+  /// 发条青蛙: a puff of green gas at the player's feet. Whatever is standing in
+  /// it takes a hit and crawls out of it slowed.
+  fart() {
+    const x = this.player.x;
+    const y = this.player.y;
+    const stacks = this.items.frog || 1;
+
+    const radius = 88 + 8 * stacks;
+    const damage = this.state.damage * (0.55 + 0.25 * stacks);
+
+    for (let i = 0; i < 5; i++) {
+      const angle = (i / 5) * Math.PI * 2 + Math.random();
+      const bubble = this.add
+        .circle(
+          x + Math.cos(angle) * 12,
+          y + Math.sin(angle) * 12,
+          9 + Math.random() * 8,
+          0x7fe36b,
+          0.4
+        )
+        .setDepth(6);
+
+      this.tweens.add({
+        targets: bubble,
+        x: x + Math.cos(angle) * radius * 0.8,
+        y: y + Math.sin(angle) * radius * 0.8,
+        alpha: 0,
+        scale: 1.6,
+        duration: 520 + Math.random() * 180,
+        onComplete: () => bubble.destroy()
+      });
+    }
+
+    const ring = this.add
+      .circle(x, y, radius * 0.5, 0x7fe36b, 0.18)
+      .setDepth(5);
+    this.tweens.add({
+      targets: ring,
+      scale: 2,
+      alpha: 0,
+      duration: 480,
+      onComplete: () => ring.destroy()
+    });
+
+    for (const enemy of this.enemies.getChildren()) {
+      if (!enemy.active) continue;
+      const dist = Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y);
+      if (dist > radius) continue;
+
+      enemy.setData('slowUntil', this.time.now + 1400);
+      this.damageEnemy(enemy, damage);
+    }
+
+    haptic('fart');
+  }
+
+  /// 尖叫的茶壶: a mouse pops up somewhere on the floor. It is quick, it pays coins
+  /// when it dies, and it bites whoever it reaches.
+  summonMouse() {
+    const def = ENEMY_TYPES.mouse;
+    if (!def) return;
+
+    // Two pests at a time is plenty: a crowd of them would be unreadable.
+    let live = 0;
+    for (const enemy of this.enemies.getChildren()) {
+      if (enemy.active && enemy.getData('teapot')) live += 1;
+    }
+    if (live >= 2) return;
+
+    const field = this.layout.field;
+    let x = field.centerX;
+    let y = field.centerY;
+
+    for (let i = 0; i < 10; i++) {
+      x = Phaser.Math.Between(34, Math.max(35, field.width - 34));
+      y = Phaser.Math.Between(34, Math.max(35, field.height - 34));
+
+      const far = Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y);
+      if (far > 140) break;
+    }
+
+    const mouse = this.makeEnemy(def, x, y);
+    if (!mouse) return;
+
+    // A pest is a pest at any wave: no tier scaling, always one clean shot.
+    mouse.setData('hp', def.hp);
+    mouse.setData('maxHp', def.hp);
+    mouse.setData('teapot', true);
+
+    this.notify('吱！', x, y);
+    haptic('squeak');
+
+    // Left alone it scurries off, so the floor never fills up with them.
+    const pest = mouse;
+    this.time.delayedCall(13000, () => {
+      if (!pest.active) return;
+      this.spawnBurst(pest.x, pest.y, 0xf0a05a, 4);
+      this.kill(pest);
+    });
+  }
+
+  /// Every coin goes through here, so a capped purse can never overflow.
+  addCoins(amount) {
+    const s = this.state;
+    const cap = Number.isFinite(s.coinCap) ? s.coinCap : Infinity;
+    const before = s.coins;
+
+    s.coins = Math.min(cap, before + amount);
+    return s.coins - before;
+  }
+
+  flushDead() {
+    while (this.dead.length > 0) {
+      const object = this.dead.pop();
+      if (object && object.scene) object.destroy();
+    }
+  }
+
+  // --------------------------------------------------------------- combat
+
+  onBulletHit(bullet, enemy) {
+    if (!bullet.active || !enemy.active) return;
+
+    // A piercing round must not hit the same enemy on every overlapping frame.
+    const hits = bullet.getData('hits');
+    if (hits) {
+      if (hits.indexOf(enemy) !== -1) return;
+      hits.push(enemy);
+    }
+
+    let damage = bullet.getData('damage') || 1;
+    const crit =
+      this.state.critChance > 0 && Math.random() < this.state.critChance;
+    if (crit) {
+      damage *= this.state.critMult;
+      this.dropCoin(enemy.x, enemy.y, 14);
+    }
+
+    // The frost gun and the toxin darts slow whatever they touch.
+    const slow = bullet.getData('slow') || 0;
+    if (slow > 0) {
+      enemy.setData('slowUntil', this.time.now + 1200);
+    }
+
+    this.damageEnemy(enemy, damage);
+
+    // A rocket bursts on impact and catches everything standing nearby.
+    const splash = bullet.getData('splash') || 0;
+    if (splash > 0) {
+      this.spawnBurst(enemy.x, enemy.y, 0xff9a3f, 9);
+
+      for (const other of this.enemies.getChildren()) {
+        if (other === enemy || !other.active) continue;
+        const d = Phaser.Math.Distance.Between(enemy.x, enemy.y, other.x, other.y);
+        if (d <= splash) this.damageEnemy(other, damage * 0.6);
+      }
+      Sfx.mine();
+    } else {
+      Sfx.hit();
+    }
+
+    const pierce = bullet.getData('pierce') || 0;
+    if (pierce > 0) {
+      bullet.setData('pierce', pierce - 1);
+    } else {
+      this.kill(bullet);
+    }
+  }
+
+  // Both of the handlers below are wired to an overlap of a Group against the
+  // single player sprite. Phaser hands those callbacks the lone object FIRST and
+  // the group member second, whatever order overlap() was given — so each
+  // handler works out which argument is the player instead of trusting order.
+  onEnemyTouch(a, b) {
+    const enemy = a === this.player ? b : a;
+    if (!this.running || !enemy || enemy === this.player || !enemy.active)
+      return;
+
+    const now = this.time.now;
+    if (now < this.dashUntil) return;
+    if (now < this.invulnUntil) return;
+
+    // A hit that goes wrong must never take the whole run down with it: an
+    // exception thrown inside a physics callback stops the game loop dead.
+    try {
+      this.hurt(enemy.getData('damage') || 8);
+    } catch (error) {
+      console.warn('Contact damage failed:', error);
+    }
+  }
+
+  damageEnemy(enemy, amount) {
+    const s = this.state;
+
+    if (s.lifesteal > 0) {
+      s.hp = Math.min(s.maxHp, s.hp + amount * s.lifesteal);
+    }
+    if (s.slowOnHit > 0) {
+      enemy.setData('slowUntil', this.time.now + 1500);
+    }
+
+    // 冷冻剂 pays off against anything already crawling: the frost gun, the
+    // toxin darts, the EMP and the frog's gas all set this up.
+    const slowed = (enemy.getData('slowUntil') || 0) > this.time.now;
+    const dealt = slowed ? amount * (1 + (s.slowBonus || 0)) : amount;
+
+    const hp = (enemy.getData('hp') || 1) - dealt;
+    if (hp <= 0) {
+      this.killEnemy(enemy);
+      return;
+    }
+    enemy.setData('hp', hp);
+    enemy.setTint(0xffffff);
+    const target = enemy;
+    this.time.delayedCall(70, () => {
+      if (target.active) target.clearTint();
+    });
+  }
+
+  killEnemy(enemy) {
+    if (!enemy.active) return;
+
+    const xp = enemy.getData('xp') || 1;
+    const gems = enemy.getData('gems') || 1;
+    const color = enemy.getData('color') || COLORS.purple;
+    const isBoss = enemy.getData('behaviour') === 'boss';
+
+    this.spawnBurst(enemy.x, enemy.y, color, isBoss ? 24 : gems > 1 ? 13 : 7);
+
+    // The elite leaves a fistful of shards where it fell.
+    for (let i = 0; i < gems; i++) {
+      this.dropGem(enemy.x, enemy.y, xp, 6 + i * 5);
+    }
+
+    // Coins are not guaranteed: the small fry mostly do not pay out, which is
+    // what makes saving up for something in the shop a real decision.
+    const coins = enemy.getData('coins') || 1;
+    const coinChance =
+      enemy.getData('coinChance') === undefined
+        ? 1
+        : enemy.getData('coinChance');
+    // The opening waves pay a little better, so the first shop trip is
+    // affordable even though there is less to kill.
+    const coinBoost = this.state.wave <= 5 ? 1.6 : 1;
+    if (Math.random() < Math.min(1, coinChance * coinBoost)) {
+      // 生锈的硬币 makes every coin on the floor worth two.
+      const value = this.state.coinMult || 1;
+      for (let i = 0; i < coins; i++) {
+        this.dropCoin(enemy.x, enemy.y, 8 + i * 4, value);
+      }
+    }
+
+    // And sometimes a whole weapon crate — rarely, and only from the bracket the
+    // run has reached, so early guns stay a find and late ones stay earned.
+    const weaponChance =
+      (enemy.getData('weaponChance') || 0) * weaponDropFactor(this.state.wave);
+    if (
+      weaponChance > 0 &&
+      this.weaponDrops.length < 2 &&
+      Math.random() < weaponChance
+    ) {
+      const drop = weaponDropKey(this.state.wave);
+      if (drop) this.dropWeapon(enemy.x, enemy.y, drop);
+    }
+
+    this.state.kills += 1;
+    if (gems > 1) haptic('impact');
+
+    // Off the board before the chain runs, so a chain reaction can never come
+    // back round and kill this corpse a second time.
+    this.kill(enemy);
+    this.hapticOnce('enemy_death', 90);
+    Sfx.kill();
+
+    // 连锁反应: the corpse goes off and takes a bite out of the crowd.
+    if (this.state.chainKill > 0) {
+      const stacks = this.items.chain || 1;
+      const radius = 46 + 10 * stacks;
+      const damage = this.state.damage * 0.35 * stacks;
+
+      this.spawnBurst(enemy.x, enemy.y, 0xff9a3f, 5);
+      for (const other of this.enemies.getChildren()) {
+        if (other === enemy || !other.active) continue;
+        const d = Phaser.Math.Distance.Between(enemy.x, enemy.y, other.x, other.y);
+        if (d <= radius) this.damageEnemy(other, damage);
+      }
+    }
+
+    if (isBoss) this.onBossDefeated();
+  }
+
+  /// A boss falling is what ends its wave: a bigger heal and a shower of shards
+  /// land first, then the usual wave-clear card opens.
+  onBossDefeated() {
+    if (!this.bossFight) return;
+    this.bossFight = false;
+    this.boss = null;
+
+    haptic('wave_clear');
+
+    this.state.hp = Math.min(this.state.maxHp, this.state.hp + 20);
+    for (let i = 0; i < 10; i++) {
+      this.dropGem(
+        this.player.x + Phaser.Math.Between(-70, 70),
+        this.player.y + Phaser.Math.Between(-70, 70),
+        3,
+        10
+      );
+    }
+
+    this.endWave();
+  }
+
+  /// One tap per burst: a wave of deaths should read as a rumble, not a
+  /// machine gun of separate ticks.
+  hapticOnce(name, gap) {
+    const now = this.time.now;
+    if (now - this.hapticAt < gap) return;
+    this.hapticAt = now;
+    haptic(name);
+  }
+
+  kill(object) {
+    if (!object || !object.active) return;
+    // Never let a stray callback take the player out of the scene: with no
+    // player every later frame throws and the whole game locks up.
+    if (object === this.player) return;
+
+    // The elite's ground glow is a separate object and has to go with it.
+    const aura = object.getData ? object.getData('aura') : null;
+    if (aura) {
+      this.tweens.killTweensOf(aura);
+      aura.destroy();
+    }
+
+    object.setActive(false);
+    object.setVisible(false);
+    if (object.body) {
+      object.body.enable = false;
+    }
+    this.dead.push(object);
+  }
+
+  spawnBurst(x, y, color, count) {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 30 + Math.random() * 70;
+      const dot = this.add
+        .circle(x, y, 2 + Math.random() * 2, color, 0.95)
+        .setDepth(8);
+      this.tweens.add({
+        targets: dot,
+        x: x + Math.cos(angle) * dist,
+        y: y + Math.sin(angle) * dist,
+        alpha: 0,
+        scale: 0.4,
+        duration: 260 + Math.random() * 180,
+        onComplete: () => dot.destroy()
+      });
+    }
+  }
+
+  dropGem(x, y, value, spread = 5) {
+    this.dropPickup('gem', 'gem', value, x, y, spread);
+  }
+
+  dropCoin(x, y, spread = 8, value = 1) {
+    this.dropPickup('coin', 'coin', value, x, y, spread);
+  }
+
+  dropPickup(texture, kind, value, x, y, spread) {
+    const pickup = this.add
+      .image(
+        x + Phaser.Math.Between(-spread, spread),
+        y + Phaser.Math.Between(-spread, spread),
+        texture
+      )
+      .setDepth(2)
+      .setScale(0.12);
+
+    pickup.setData('kind', kind);
+    pickup.setData('value', value);
+    // Shards are deliberately small: the field stays readable even when a big
+    // drop is flying at the player.
+    const targetScale = kind === 'coin' ? 0.8 : 0.62;
+    this.tweens.add({
+      targets: pickup,
+      scale: targetScale,
+      duration: 200,
+      ease: 'Back.out'
+    });
+    this.pickups.push(pickup);
+  }
+
+  addXp(amount) {
+    const s = this.state;
+    s.xp += amount;
+    while (s.xp >= s.xpNext) {
+      s.xp -= s.xpNext;
+      s.level += 1;
+      // The cost is rebuilt from the wave, not compounded, so levelling stays at
+      // roughly one per wave no matter how long the run goes.
+      s.xpNext = xpForLevel(s.wave);
+      this.requestChoice('level');
+    }
+  }
+
+  hurt(amount) {
+    if (!this.running) return;
+
+    const s = this.state;
+    const taken = amount * (1 - (s.armor || 0));
+    s.hp = Math.max(0, s.hp - taken);
+    this.lastHurtAt = this.time.now;
+    this.invulnUntil = this.time.now + 420;
+
+    this.cameras.main.shake(140, 0.007);
+    this.player.setTint(0xff8899);
+    const player = this.player;
+    this.time.delayedCall(140, () => {
+      if (player.active) player.clearTint();
+    });
+
+    this.spawnBurst(this.player.x, this.player.y, COLORS.danger, 6);
+    haptic('hurt');
+    Sfx.hurt();
+
+    if (s.hp <= 0) this.gameOver();
+  }
+
+  // ----------------------------------------------------------------- waves
+
+  startWave(wave) {
+    const s = this.state;
+
+    // A shop buff lasts exactly one wave: drop the old one, then take the new.
+    this.clearWaveBuff();
+    if (this.pendingBuff) {
+      this.applyWaveBuff(this.pendingBuff);
+      this.activeBuff = this.pendingBuff;
+      this.pendingBuff = null;
+    }
+
+    s.wave = wave;
+    // Whatever was banked toward the next level is re-measured against this
+    // wave's price, so a cheap level cannot be saved up across waves.
+    s.xpNext = Math.max(s.xpNext, xpForLevel(wave));
+
+    // The loops switch with the stakes: a boss wave gets its own tense track.
+    setMusicTrack(isBossWave(wave) ? 'boss' : 'battle');
+
+    // Reaching a deep enough wave is what unlocks the hidden characters.
+    const unlocked = recordWave(wave);
+    for (const character of unlocked) {
+      haptic('level_up');
+      this.notify(
+        `解锁角色 ${character.name}`,
+        this.layout.width / 2,
+        this.layout.field.height * 0.5
+      );
+    }
+
+    this.waveEnding = false;
+
+    if (this.spawnTimer) {
+      this.spawnTimer.remove();
+      this.spawnTimer = null;
+    }
+
+    // 固定炮塔 sets up shop for the whole wave, boss waves included.
+    this.spawnWaveTurrets();
+
+    if (isBossWave(wave)) {
+      // A boss wave has no clock: no spawns, no countdown. It ends when the
+      // boss falls.
+      this.bossFight = true;
+      s.waveLeft = 0;
+      this.banner(`第 ${wave} 波 · 首领`, '击败首领结束这一波');
+      this.time.delayedCall(700, () => this.spawnBoss());
+      return;
+    }
+
+    this.bossFight = false;
+    s.waveLeft = waveDuration(wave);
+
+    const plan = waveSpawnPlan(wave);
+    this.spawnTimer = this.time.addEvent({
+      delay: plan.delay,
+      loop: true,
+      callback: this.spawnTick,
+      callbackScope: this
+    });
+
+    this.banner(`第 ${wave} 波`, `坚持 ${Math.round(s.waveLeft)} 秒`);
+
+    // An elite joins from wave 5, and a second one from wave 8.
+    if (wave >= 5) {
+      this.time.delayedCall(900, () => {
+        if (!this.running || this.waveEnding) return;
+        this.spawnExtra('elite');
+        if (wave >= 8) this.spawnExtra('elite');
+      });
+    }
+  }
+
+  /// Drops one extra enemy of a given kind at a random edge of the field.
+  spawnExtra(typeKey) {
+    const def = ENEMY_TYPES[typeKey];
+    if (!def) return;
+
+    const field = this.layout.field;
+    const edge = Phaser.Math.Between(0, 3);
+    let x = 0;
+    let y = 0;
+
+    if (edge === 0) {
+      x = Phaser.Math.Between(30, field.width - 30);
+      y = def.radius + 14;
+    } else if (edge === 1) {
+      x = field.width - def.radius - 14;
+      y = Phaser.Math.Between(30, field.height - 30);
+    } else if (edge === 2) {
+      x = Phaser.Math.Between(30, field.width - 30);
+      y = field.height - def.radius - 14;
+    } else {
+      x = def.radius + 14;
+      y = Phaser.Math.Between(30, field.height - 30);
+    }
+
+    this.makeEnemy(def, x, y);
+  }
+
+  endWave() {
+    if (this.waveEnding) return;
+    this.waveEnding = true;
+
+    if (this.spawnTimer) {
+      this.spawnTimer.remove();
+      this.spawnTimer = null;
+    }
+
+    // Everything left on the field evaporates so the player is never hit while
+    // reading the reward screen — orbs included.
+    for (const enemy of this.enemies.getChildren().slice()) {
+      if (!enemy.active) continue;
+      this.spawnBurst(
+        enemy.x,
+        enemy.y,
+        enemy.getData('color') || COLORS.purple,
+        5
+      );
+      this.kill(enemy);
+    }
+    for (const shot of this.enemyShots.getChildren().slice()) {
+      if (shot.active) this.kill(shot);
+    }
+
+    // Turrets are wave equipment: they fold up when the wave is cleared.
+    this.clearTurrets();
+
+    this.state.hp = Math.min(this.state.maxHp, this.state.hp + 10);
+    haptic('wave_clear');
+    Sfx.waveClear();
+    this.openShop();
+  }
+
+  startNextWave() {
+    this.startWave(this.state.wave + 1);
+  }
+
+  spawnTick() {
+    if (!this.running || this.waveEnding) return;
+
+    const plan = waveSpawnPlan(this.state.wave);
+    if (this.enemies.countActive(true) >= plan.cap) return;
+
+    for (let i = 0; i < plan.count; i++) this.spawnEnemy();
+  }
+
+  spawnEnemy() {
+    const def = ENEMY_TYPES[pickEnemyType(this.state.wave)];
+    if (!def) return;
+
+    const field = this.layout.field;
+    const edge = Phaser.Math.Between(0, 3);
+    let x = 0;
+    let y = 0;
+
+    if (edge === 0) {
+      x = Phaser.Math.Between(30, field.width - 30);
+      y = def.radius + 14;
+    } else if (edge === 1) {
+      x = field.width - def.radius - 14;
+      y = Phaser.Math.Between(30, field.height - 30);
+    } else if (edge === 2) {
+      x = Phaser.Math.Between(30, field.width - 30);
+      y = field.height - def.radius - 14;
+    } else {
+      x = def.radius + 14;
+      y = Phaser.Math.Between(30, field.height - 30);
+    }
+
+    this.makeEnemy(def, x, y);
+  }
+
+  /// The boss drops into the top of the arena on its own, after the warning
+  /// banner has had a moment to read.
+  spawnBoss() {
+    if (!this.running || !this.bossFight) return;
+
+    const def = ENEMY_TYPES.boss;
+    if (!def) return;
+
+    const field = this.layout.field;
+    const boss = this.makeEnemy(
+      def,
+      field.centerX,
+      Math.max(90, field.height * 0.22)
+    );
+    if (!boss) return;
+
+    this.boss = boss;
+    boss.setCollideWorldBounds(true);
+    boss.setData('actionTimer', 1400);
+    this.spawnBurst(boss.x, boss.y, 0xff3d6e, 16);
+    haptic('impact');
+    Sfx.boss();
+  }
+
+  makeEnemy(def, x, y) {
+    const wave = this.state.wave;
+
+    const enemy = this.enemies.create(x, y, def.texture);
+    if (!enemy) return null;
+
+    enemy.setDepth(3);
+    const offX = def.offsetX || def.offset;
+    const offY = def.offsetY || def.offset;
+    enemy.body.setCircle(def.radius, offX, offY);
+
+    // Every three waves the whole bestiary steps up a tier. The curve lives in
+    // enemies.js so the late run cannot quietly drift out of control.
+    const scale = waveScaling(wave);
+
+    const hp = Math.max(1, Math.round(def.hp * scale.hp));
+    enemy.setData('hp', hp);
+    enemy.setData('maxHp', hp);
+
+    // Individuals differ: a herd moving at exactly one speed reads as scenery,
+    // a herd with fast and slow members reads as a hunt.
+    const jitter =
+      def.behaviour === 'boss' ? 1 : Phaser.Math.FloatBetween(0.85, 1.25);
+    enemy.setData('speed', def.speed * scale.speed * jitter);
+    enemy.setData('damage', Math.round(def.damage * scale.damage));
+
+    // Steering: how far ahead of the player this one aims, plus a slow weave so
+    // it never runs in a dead straight line.
+    enemy.setData('lead', Phaser.Math.FloatBetween(0.06, 0.26));
+    enemy.setData('weave', Phaser.Math.FloatBetween(0, 0.22));
+    enemy.setData('phase', Math.random() * Math.PI * 2);
+    enemy.setData('xp', def.xp);
+    enemy.setData('gems', def.gems || 1);
+    enemy.setData('coins', def.coins || 1);
+    enemy.setData('coinChance', def.coinChance === undefined ? 1 : def.coinChance);
+    enemy.setData('weaponChance', def.weaponChance || 0);
+    enemy.setData('color', def.color);
+    enemy.setData('behaviour', def.behaviour || 'chase');
+
+    if (def.behaviour === 'ranged') {
+      enemy.setData('keepNear', def.keepNear || 150);
+      enemy.setData('keepFar', def.keepFar || 250);
+      enemy.setData('shootInterval', def.shootInterval || 1900);
+      enemy.setData('shotDamage', Math.round((def.shotDamage || 7) * scale.damage));
+      enemy.setData(
+        'shootTimer',
+        (def.shootInterval || 1900) * Phaser.Math.FloatBetween(0.5, 1.2)
+      );
+      enemy.setData('strafe', Math.random() < 0.5 ? 1 : -1);
+    }
+
+    // Only the elite gets a glow beneath it: one look tells you it matters.
+    if (def.aura) {
+      const aura = this.add
+        .ellipse(x, y, def.aura, def.aura * 0.62, def.auraColor || 0xff3d8b, 0.18)
+        .setDepth(2);
+      enemy.setData('aura', aura);
+      this.tweens.add({
+        targets: aura,
+        alpha: 0.32,
+        scale: 1.16,
+        duration: 850,
+        yoyo: true,
+        repeat: -1
+      });
+    }
+
+    // Spawn-in: scale only, so the physics circle never changes size.
+    enemy.setScale(0.2);
+    enemy.setAlpha(0.4);
+    this.tweens.add({
+      targets: enemy,
+      scale: 1,
+      alpha: 1,
+      duration: 220,
+      ease: 'Back.out'
+    });
+
+    return enemy;
+  }
+
+  // -------------------------------------------------------------- upgrades
+
+  requestChoice(kind) {
+    if (!this.running) return false;
+
+    if (this.choiceOpen || this.bossFight) {
+      this.pending.push(kind);
+      return false;
+    }
+
+    const cards = rollCards(this.stacks, 3, this.state.weapons);
+    if (cards.length === 0) return false;
+
+    this.choiceOpen = true;
+    if (kind === 'level') {
+      haptic('level_up');
+      Sfx.levelUp();
+    }
+
+    const title =
+      kind === 'wave'
+        ? `第 ${this.state.wave} 波 完成`
+        : `等级提升 · Lv ${this.state.level}`;
+
+    this.scene.launch('Choice', { kind, title, cards });
+    this.scene.pause();
+    return true;
+  }
+
+  finishChoice() {
+    this.choiceOpen = false;
+
+    // Whatever happens here, the run must not be left paused with no UI.
+    try {
+      if (this.pending.length > 0) {
+        const kind = this.pending.shift();
+        if (this.requestChoice(kind)) return;
+      }
+    } catch (error) {
+      console.warn('Next choice failed:', error);
+    }
+
+    if (!this.running) return;
+    this.scene.resume();
+  }
+
+  applyUpgrade(key) {
+    if (key.startsWith('weapon:')) {
+      const weaponKey = key.slice('weapon:'.length);
+      const slot = this.state.weapons.find((w) => w.key === weaponKey);
+      if (!slot) return;
+
+      slot.level = Math.min(5, (slot.level || 1) + 1);
+      this.drawWeaponSlots();
+      return;
+    }
+
+    const item = UPGRADE_BY_KEY[key];
+    if (!item) return;
+
+    this.stacks[key] = (this.stacks[key] || 0) + 1;
+    item.apply(this.state);
+    this.clampPlayerStats();
+    if (this.state.hp > this.state.maxHp) this.state.hp = this.state.maxHp;
+  }
+
+  /// Caps runaway stacking, so a long run cannot turn into a free ride: damage
+  /// tops out at five times its starting figure, fire rate at four, and the
+  /// defensive stats are held down too. The level-up pool stops offering the
+  /// stat cards that reach these ceilings.
+  clampPlayerStats() {
+    const s = this.state;
+    const base = this.baseStats;
+    if (!base) return;
+
+    s.fireInterval = Math.max(base.fireInterval / 4, s.fireInterval);
+    s.damage = Math.min(base.damage * 5, s.damage);
+    s.speed = Math.min(base.speed * 2.2, s.speed);
+    s.critChance = Math.min(0.75, s.critChance);
+    s.armor = Math.min(0.6, s.armor);
+    s.lifesteal = Math.min(0.2, s.lifesteal);
+    s.projectiles = Math.min(5, s.projectiles);
+  }
+
+  // ------------------------------------------------------------------ shop
+
+  /// Opens the between-wave shop. The run stays frozen until the player either
+  /// spends or presses continue, so coins are never spent under pressure.
+  openShop() {
+    this.shopOpen = true;
+    duckMusic(0.45);
+    this.buildShopStock();
+
+    // One tick later, so a boss dying inside a physics step never pauses the
+    // world halfway through it.
+    this.time.delayedCall(0, () => {
+      if (!this.shopOpen) return;
+      this.scene.launch('Shop', {
+        wave: this.state.wave,
+        items: this.shopItems
+      });
+      this.scene.pause();
+    });
+  }
+
+  /// Rolls the shelf, keeping anything the player has pinned so a great early
+  /// item can be saved up for across waves.
+  buildShopStock() {
+    const kept = (this.shopItems || []).filter(
+      (item) => item.saved && !item.sold
+    );
+    const fresh = rollShopItems(this.state.wave, this.items);
+
+    const items = [];
+    for (const item of kept) items.push(item);
+    for (const item of fresh) {
+      if (items.length >= 5) break;
+      items.push(item);
+    }
+
+    this.shopItems = items;
+    return items;
+  }
+
+  /// Pins or unpins a shop item so a refresh leaves it alone.
+  toggleShopLock(index) {
+    const item = this.shopItems[index];
+    if (!item || item.sold) return;
+    item.saved = !item.saved;
+  }
+
+  buyShopItem(index) {
+    const item = this.shopItems[index];
+    if (!item || item.sold) return false;
+    if (this.state.coins < item.price) return false;
+
+    // An item already at its stack cap is never bought twice, even if a pinned
+    // card from an earlier shelf is still sitting there.
+    if (item.kind === 'item') {
+      const def = ITEM_BY_KEY[item.key];
+      if (!def) return false;
+      if ((this.items[item.key] || 0) >= (def.max || 1)) return false;
+    }
+
+    this.state.coins -= item.price;
+    item.sold = true;
+
+    if (item.kind === 'item') {
+      this.addItem(item.key);
+    } else if (item.kind === 'upgrade') {
+      const def = UPGRADE_BY_KEY[item.key];
+      if (def) {
+        this.stacks[item.key] = (this.stacks[item.key] || 0) + 1;
+        def.apply(this.state);
+      }
+    } else if (item.kind === 'heal') {
+      this.state.hp = Math.min(this.state.maxHp, this.state.hp + item.heal);
+    } else if (item.kind === 'buff') {
+      // Banked now, switched on when the next wave starts and gone when it ends.
+      this.pendingBuff = { key: item.key, mult: item.mult };
+    }
+
+    this.clampPlayerStats();
+
+    if (this.state.hp > this.state.maxHp) this.state.hp = this.state.maxHp;
+    return true;
+  }
+
+  /// Buying an item: the effect lands at once, the left-hand column picks up
+  /// another chip, and an active gadget starts half charged.
+  addItem(key) {
+    const def = ITEM_BY_KEY[key];
+    if (!def) return false;
+
+    const have = this.items[key] || 0;
+    if (have >= (def.max || 1)) return false;
+
+    this.items[key] = have + 1;
+    if (def.apply) def.apply(this.state);
+
+    if (key === 'rustycoin') {
+      // The purse locks at fifty for the rest of the run, and every coin the
+      // monsters drop is worth two.
+      this.state.coinCap = 50;
+      this.state.coinMult = 2;
+      this.state.coins = Math.min(this.state.coins, 50);
+    } else if (key === 'frog') {
+      this.frogCharge = 0;
+    } else if (key === 'teapot') {
+      this.teapotCharge = 0;
+    } else if (def.active) {
+      this.activeTimers[key] = activeCooldown(key, this.items[key]) * 0.5;
+    }
+
+    this.clampPlayerStats();
+    if (this.state.hp > this.state.maxHp) this.state.hp = this.state.maxHp;
+    this.drawItemBar();
+    this.syncCompanions();
+    return true;
+  }
+
+  /// Leaving the shop opens the usual wave-clear card, and picking that starts
+  /// the next wave.
+  /// Paid re-roll of the shop's stock. A bad roll should never be a dead end.
+  refreshShopItems() {
+    if (!this.shopOpen) return false;
+    if (this.state.coins < SHOP_REFRESH_COST) return false;
+
+    this.state.coins -= SHOP_REFRESH_COST;
+    this.buildShopStock();
+    return true;
+  }
+
+  /// Leaving the shop opens the usual wave-clear card, and picking that starts
+  /// the next wave.
+  leaveShop() {
+    this.shopOpen = false;
+    duckMusic(1);
+
+    try {
+      if (this.requestChoice('wave')) return;
+    } catch (error) {
+      console.warn('Wave card failed:', error);
+    }
+
+    if (!this.running) return;
+    this.startNextWave();
+    this.scene.resume();
+  }
+
+  applyWaveBuff(buff) {
+    const s = this.state;
+    if (buff.key === 'damage') s.damage *= buff.mult;
+    else if (buff.key === 'firerate') s.fireInterval *= buff.mult;
+    else if (buff.key === 'speed') s.speed *= buff.mult;
+  }
+
+  clearWaveBuff() {
+    if (!this.activeBuff) return;
+
+    const s = this.state;
+    const buff = this.activeBuff;
+    if (buff.key === 'damage') s.damage /= buff.mult;
+    else if (buff.key === 'firerate') s.fireInterval /= buff.mult;
+    else if (buff.key === 'speed') s.speed /= buff.mult;
+
+    this.activeBuff = null;
+  }
+
+  // --------------------------------------------------------------- weapons
+
+  /// The left-hand inventory: weapon chips in a two-wide grid under the status
+  /// bar, one chip per gun, so a full arsenal still fits on a phone.
+  drawWeaponSlots() {
+    const g = this.slotGfx;
+    if (!g || !this.slotIcons) return;
+
+    g.clear();
+    for (const icon of this.slotIcons) icon.destroy();
+    this.slotIcons = [];
+    this.slotPositions = [];
+
+    const layout = this.layout;
+    const s = layout.uiScale;
+
+    const chip = Math.max(20, Math.round(23 * s));
+    const gap = Math.max(4, Math.round(5 * s));
+    const pad = 6;
+    const cols = 2;
+
+    const weapons = this.state.weapons;
+    const rows = Math.max(1, Math.ceil(weapons.length / cols));
+
+    const width = cols * chip + (cols - 1) * gap + pad * 2;
+    const height = rows * chip + (rows - 1) * gap + pad * 2;
+    const x = 8;
+    const y = layout.topInset + Math.round(72 * s) + 6;
+
+    g.fillStyle(0x0b1018, 0.72);
+    g.fillRoundedRect(x, y, width, height, 10);
+    g.lineStyle(1, 0x2bd3c4, 0.2);
+    g.strokeRoundedRect(x, y, width, height, 10);
+
+    this.slotsBox = { x, y, width, height, chip, gap, pad, cols };
+    const r = chip / 2;
+
+    weapons.forEach((slot, index) => {
+      const def = weaponDef(slot);
+      if (!def) return;
+
+      const col = index % 2;
+      const row = Math.floor(index / 2);
+      const cx = x + 6 + r + col * (chip + gap);
+      const cy = y + 6 + r + row * (chip + gap);
+
+      this.slotPositions.push({ x: cx, y: cy, r });
+
+      g.fillStyle(0x0d1522, 0.9);
+      g.fillCircle(cx, cy, r);
+      g.lineStyle(2, def.color, 0.7);
+      g.strokeCircle(cx, cy, r);
+
+      this.slotIcons.push(
+        this.add
+          .text(cx, cy, def.emoji || '🔫', {
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            fontSize: `${Math.round(r * 1.1)}px`
+          })
+          .setOrigin(0.5)
+          .setDepth(21)
+      );
+
+      const level = Math.min(slot.level || 1, 4);
+      for (let p = 0; p < level; p++) {
+        const px = cx - (level - 1) * 3 + p * 6;
+        g.fillStyle(def.color, 0.9);
+        g.fillCircle(px, cy + r + 2, 1.5);
+      }
+    });
+
+    // The item column hangs underneath, so it moves with the panel.
+    this.drawItemBar();
+  }
+
+  /// The item column: every trinket and gadget owned, stacked under the weapon
+  /// chips in the same left-hand column.
+  drawItemBar() {
+    const g = this.itemGfx;
+    if (!g) return;
+
+    g.clear();
+    for (const node of this.itemIcons) node.destroy();
+    this.itemIcons = [];
+    this.itemPositions = {};
+
+    const owned = ITEM_POOL.filter((def) => (this.items[def.key] || 0) > 0);
+    if (owned.length === 0 || !this.slotsBox) return;
+
+    const box = this.slotsBox;
+    const s = this.layout.uiScale;
+
+    const chip = Math.max(18, Math.round(21 * s));
+    const gap = Math.max(4, Math.round(5 * s));
+    const pad = 6;
+    const cols = 2;
+
+    const rows = Math.ceil(owned.length / cols);
+    const width = cols * chip + (cols - 1) * gap + pad * 2;
+    const height = rows * chip + (rows - 1) * gap + pad * 2;
+    const x = box.x;
+    const y = box.y + box.height + 6;
+
+    g.fillStyle(0x0b1018, 0.72);
+    g.fillRoundedRect(x, y, width, height, 10);
+    g.lineStyle(1, 0x2bd3c4, 0.2);
+    g.strokeRoundedRect(x, y, width, height, 10);
+
+    const r = chip / 2;
+
+    owned.forEach((def, index) => {
+      const col = index % 2;
+      const row = Math.floor(index / 2);
+      const cx = x + pad + r + col * (chip + gap);
+      const cy = y + pad + r + row * (chip + gap);
+      const stacks = this.items[def.key] || 1;
+
+      this.itemPositions[def.key] = { x: cx, y: cy, r };
+
+      g.fillStyle(0x0d1522, 0.9);
+      g.fillCircle(cx, cy, r);
+      g.lineStyle(2, def.color, def.active ? 0.9 : 0.6);
+      g.strokeCircle(cx, cy, r);
+
+      this.itemIcons.push(
+        this.add
+          .text(cx, cy, def.emoji, {
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            fontSize: `${Math.round(r * 1.15)}px`
+          })
+          .setOrigin(0.5)
+          .setDepth(21)
+      );
+
+      const pips = Math.min(stacks, 4);
+      for (let p = 0; p < pips; p++) {
+        const px = cx - (pips - 1) * 3 + p * 6;
+        g.fillStyle(def.color, 0.9);
+        g.fillCircle(px, cy + r + 2, 1.5);
+      }
+    });
+  }
+
+  /// Recharge arcs for the active items, redrawn each frame on their own layer.
+  drawItemCharges() {
+    const g = this.chargeGfx;
+    if (!g) return;
+
+    g.clear();
+    if (!this.itemPositions) return;
+
+    for (const key of Object.keys(this.itemPositions)) {
+      const def = ITEM_BY_KEY[key];
+      if (!def || !def.active) continue;
+
+      const pos = this.itemPositions[key];
+      const stacks = this.items[key] || 1;
+      const full = activeCooldown(key, stacks);
+      const left = Math.max(0, this.activeTimers[key] || 0);
+      const ratio = 1 - Math.min(1, left / full);
+
+      if (ratio >= 1) {
+        g.lineStyle(2, def.color, 0.9);
+        g.strokeCircle(pos.x, pos.y, pos.r + 3);
+        continue;
+      }
+
+      g.lineStyle(2, def.color, 0.55);
+      g.beginPath();
+      g.arc(
+        pos.x,
+        pos.y,
+        pos.r + 3,
+        -Math.PI / 2,
+        -Math.PI / 2 + Math.PI * 2 * ratio,
+        false
+      );
+      g.strokePath();
+    }
+  }
+
+  /// A quick ring around the slot that just changed, standing in for a floating
+  /// "you got X" label.
+  flashSlot(index) {
+    const pos = this.slotPositions && this.slotPositions[index];
+    if (!pos) return;
+
+    const ring = this.add
+      .circle(pos.x, pos.y, pos.r, 0xffffff, 0.3)
+      .setDepth(21)
+      .setScale(0.85);
+    this.tweens.add({
+      targets: ring,
+      scale: 1.7,
+      alpha: 0,
+      duration: 320,
+      onComplete: () => ring.destroy()
+    });
+  }
+
+  /// Picking a crate up: a duplicate levels the weapon you already own, a free
+  /// slot simply takes the new gun, and a full rack opens the swap-or-merge
+  /// screen instead of silently throwing something away.
+  acquireWeapon(key) {
+    const def = WEAPONS[key];
+    if (!def) return;
+
+    const owned = this.state.weapons.find((w) => w.key === key);
+    if (owned) {
+      owned.level = Math.min(5, (owned.level || 1) + 1);
+      this.drawWeaponSlots();
+      this.flashSlot(this.state.weapons.indexOf(owned));
+      Sfx.buy();
+      return;
+    }
+
+    if (this.state.weapons.length < WEAPON_SLOTS) {
+      this.state.weapons.push({ key, level: 1 });
+      this.drawWeaponSlots();
+      this.flashSlot(this.state.weapons.length - 1);
+      Sfx.buy();
+      return;
+    }
+
+    this.openWeaponChoice(key);
+  }
+
+  /// All three slots are taken: ask which gun to give up, or whether to weld two
+  /// of them together and keep the newcomer as well.
+  openWeaponChoice(key) {
+    const def = WEAPONS[key];
+    if (!def || this.weaponChoice) return;
+
+    this.weaponChoice = key;
+
+    const carried = this.state.weapons.map((slot) => {
+      const carriedDef = weaponDef(slot);
+      return {
+        key: slot.key,
+        name: carriedDef ? carriedDef.name : slot.key,
+        emoji: carriedDef ? carriedDef.emoji : '🔫',
+        color: carriedDef ? carriedDef.color : 0x39e6cd,
+        level: slot.level || 1
+      };
+    });
+
+    this.time.delayedCall(0, () => {
+      if (!this.weaponChoice) return;
+      this.scene.launch('Weapon', {
+        weapon: { key, name: def.name, emoji: def.emoji, color: def.color },
+        carried
+      });
+      this.scene.pause();
+    });
+  }
+
+  applyWeaponPick(index) {
+    const key = this.weaponChoice;
+    const slots = this.state.weapons;
+    if (!key || !slots[index]) return false;
+
+    slots[index] = { key, level: 1 };
+    this.cooldowns[index] = 0;
+
+    this.weaponChoice = null;
+    this.drawWeaponSlots();
+    this.flashSlot(index);
+    Sfx.buy();
+    return true;
+  }
+
+  mergeWeapons(a, b) {
+    const key = this.weaponChoice;
+    const slots = this.state.weapons;
+    const first = slots[a];
+    const second = slots[b];
+    if (!first || !second || a === b) return false;
+
+    const evolved = evolvedWeapon(first, second);
+    if (!evolved) return false;
+
+    const kept = slots.filter((_, index) => index !== a && index !== b);
+    const level = Math.max(first.level || 1, second.level || 1);
+    const next = [{ key: evolved.key, def: evolved, level }];
+
+    for (const slot of kept) next.push(slot);
+    if (key && next.length < WEAPON_SLOTS) next.push({ key, level: 1 });
+
+    this.state.weapons = next;
+    this.cooldowns = [];
+    this.weaponChoice = null;
+
+    this.drawWeaponSlots();
+    Sfx.levelUp();
+    haptic('level_up');
+    return true;
+  }
+
+  skipWeaponPick() {
+    this.weaponChoice = null;
+  }
+
+  finishWeaponChoice() {
+    this.weaponChoice = null;
+    if (!this.running) return;
+    this.scene.resume();
+  }
+
+  /// A weapon on the floor: the crate is tinted to the weapon and carries its
+  /// icon, so it reads without a floating name.
+  dropWeapon(x, y, key) {
+    const def = WEAPONS[key];
+    if (!def) return;
+
+    const field = this.layout.field;
+    const cx = Phaser.Math.Clamp(x, 44, field.width - 44);
+    const cy = Phaser.Math.Clamp(y, 44, field.height - 44);
+
+    const crate = this.add
+      .image(cx, cy, 'crate')
+      .setDepth(2)
+      .setTint(def.color);
+    const icon = this.add
+      .text(cx, cy, def.emoji || '🔫', {
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        fontSize: `${Math.round(20 * this.layout.uiScale)}px`
+      })
+      .setOrigin(0.5)
+      .setDepth(3);
+
+    this.tweens.add({
+      targets: [crate, icon],
+      y: cy - 6,
+      duration: 800,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.inOut'
+    });
+
+    this.weaponDrops.push({ key, crate, icon });
+  }
+
+  updateWeaponDrops() {
+    for (let i = this.weaponDrops.length - 1; i >= 0; i--) {
+      const drop = this.weaponDrops[i];
+      if (!drop.crate.active) {
+        this.weaponDrops.splice(i, 1);
+        continue;
+      }
+
+      const dist = Phaser.Math.Distance.Between(
+        this.player.x,
+        this.player.y,
+        drop.crate.x,
+        drop.crate.y
+      );
+      if (dist > 46) continue;
+
+      this.acquireWeapon(drop.key);
+      haptic('impact');
+
+      this.tweens.killTweensOf(drop.crate);
+      this.tweens.killTweensOf(drop.icon);
+      drop.crate.destroy();
+      if (drop.icon) drop.icon.destroy();
+      this.weaponDrops.splice(i, 1);
+    }
+  }
+
+  notify(text, x, y) {
+    const label = this.add
+      .text(x, y - 24, text, {
+        fontFamily: FONT,
+        fontSize: `${Math.round(14 * this.layout.uiScale)}px`,
+        color: '#eafcff',
+        fontStyle: 'bold'
+      })
+      .setOrigin(0.5)
+      .setDepth(31);
+
+    this.tweens.add({
+      targets: label,
+      y: y - 64,
+      alpha: 0,
+      duration: 1000,
+      ease: 'Cubic.out',
+      onComplete: () => label.destroy()
+    });
+  }
+
+  // ------------------------------------------------------------------- end
+
+  gameOver() {
+    if (!this.running) return;
+    this.running = false;
+
+    let result = null;
+    try {
+      result = recordRun({
+        wave: this.state.wave,
+        kills: this.state.kills,
+        time: this.state.runTime
+      });
+    } catch (error) {
+      console.warn('Saving the run failed:', error);
+    }
+
+    if (this.spawnTimer) {
+      this.spawnTimer.remove();
+      this.spawnTimer = null;
+    }
+
+    this.releaseJoystick();
+    this.player.setVelocity(0, 0);
+
+    // Freeze the field so nothing keeps sliding around behind the summary.
+    for (const enemy of this.enemies.getChildren()) {
+      if (enemy.body) enemy.body.velocity.set(0, 0);
+    }
+    for (const shot of this.enemyShots.getChildren()) {
+      if (shot.body) shot.body.velocity.set(0, 0);
+    }
+
+    this.player.setTint(0xff8899);
+    this.cameras.main.shake(320, 0.012);
+    haptic('game_over');
+    Sfx.gameOver();
+    this.spawnBurst(this.player.x, this.player.y, COLORS.danger, 14);
+
+    this.tweens.add({
+      targets: this.player,
+      alpha: 0.2,
+      duration: 520,
+      ease: 'Back.in'
+    });
+
+    // Straight to the summary — no timer and no scene pause in between, so the
+    // run can never end up sitting frozen with nothing on screen.
+    this.scene.launch('GameOver', {
+      wave: this.state.wave,
+      kills: this.state.kills,
+      time: this.state.runTime,
+      records: result
+        ? result.records
+        : { wave: false, kills: false, time: false },
+      best: result ? result.best : null
+    });
+  }
+
+  userPause() {
+    if (!this.running || this.choiceOpen || this.shopOpen || this.weaponChoice)
+      return;
+    this.pausedByUser = true;
+    this.releaseJoystick();
+    this.player.setVelocity(0, 0);
+    this.scene.pause();
+  }
+
+  userResume() {
+    this.pausedByUser = false;
+    this.scene.resume();
+  }
+
+  /// Restarts the run from scratch: the scene shuts itself down and every
+  /// overlay goes with it, then create() runs again and re-launches the HUD.
+  restartRun() {
+    this.scene.stop('Choice');
+    this.scene.stop('Weapon');
+    this.scene.stop('Hud');
+    this.scene.stop('GameOver');
+    if (this.scene.isPaused()) this.scene.resume();
+    this.scene.restart();
+  }
+
+  goToTitle() {
+    this.scene.stop('Choice');
+    this.scene.stop('Weapon');
+    this.scene.stop('Hud');
+    this.scene.stop('GameOver');
+    if (this.scene.isPaused()) this.scene.resume();
+    this.scene.start('Title');
+  }
+
+  // ---------------------------------------------------------------- resize
+
+  onResize(gameSize) {
+    this.layout = computeLayout(gameSize.width, gameSize.height);
+    const field = this.layout.field;
+
+    this.floor.setSize(field.width, field.height);
+    this.drawBorder();
+    this.physics.world.setBounds(
+      8,
+      8,
+      Math.max(40, field.width - 16),
+      Math.max(40, field.height - 16)
+    );
+
+    this.player.x = Phaser.Math.Clamp(this.player.x, 26, field.width - 26);
+    this.player.y = Phaser.Math.Clamp(this.player.y, 26, field.height - 26);
+
+    this.drawDash();
+    this.drawWeaponSlots();
+    this.drawItemBar();
+    this.drawSkill();
+  }
+
+  // ----------------------------------------------------------------- banner
+
+  banner(title, subtitle) {
+    const field = this.layout.field;
+    const size = Math.round(26 * this.layout.uiScale);
+
+    const text = this.add
+      .text(field.centerX, field.height * 0.28, title, {
+        fontFamily: FONT,
+        fontSize: `${size}px`,
+        color: '#eafcff',
+        fontStyle: 'bold'
+      })
+      .setOrigin(0.5)
+      .setDepth(30)
+      .setAlpha(0);
+
+    const sub = this.add
+      .text(field.centerX, field.height * 0.28 + size + 6, subtitle, {
+        fontFamily: FONT,
+        fontSize: `${Math.round(size * 0.5)}px`,
+        color: COLORS.dim
+      })
+      .setOrigin(0.5)
+      .setDepth(30)
+      .setAlpha(0);
+
+    this.tweens.add({ targets: [text, sub], alpha: 1, duration: 260 });
+    this.time.delayedCall(1500, () => {
+      this.tweens.add({
+        targets: [text, sub],
+        alpha: 0,
+        duration: 420,
+        onComplete: () => {
+          text.destroy();
+          sub.destroy();
+        }
+      });
+    });
+  }
+}

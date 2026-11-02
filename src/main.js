@@ -2,13 +2,21 @@
 // in scenes under src/scenes/.
 
 import { BootScene } from './scenes/BootScene.js';
-import { themeValue } from './theme.js';
+import { TitleScene } from './scenes/TitleScene.js';
+import { CharacterScene } from './scenes/CharacterScene.js';
+import { GameScene } from './scenes/GameScene.js';
+import { HudScene } from './scenes/HudScene.js';
+import { ChoiceScene } from './scenes/ChoiceScene.js';
+import { ShopScene } from './scenes/ShopScene.js';
+import { WeaponScene } from './scenes/WeaponScene.js';
+import { GameOverScene } from './scenes/GameOverScene.js';
 
 // On window so the running game can be inspected from outside the module graph.
 window.game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'stage',
-  backgroundColor: themeValue('--bg'),
+  // The game owns a dark palette of its own, in both light and dark mode.
+  backgroundColor: 0x070a10,
 
   scale: {
     // The runtime is a phone-shaped panel that can change size, so the game
@@ -18,8 +26,9 @@ window.game = new Phaser.Game({
     autoCenter: Phaser.Scale.CENTER_BOTH
   },
 
-  // Arcade physics is set up but idle: gravity is zero until a scene asks for
-  // it, so a game that does not need physics pays nothing for it being here.
+  // Arcade physics is idle until a body is given velocity: the arena is flat,
+  // so nothing falls. It is here for the collision checks between the player,
+  // the enemies and the bullets.
   physics: {
     default: 'arcade',
     arcade: {
@@ -30,10 +39,22 @@ window.game = new Phaser.Game({
 
   input: {
     // Phaser tracks one pointer by default, which silently breaks on-screen
-    // controls: holding a direction pad and tapping jump is two fingers down
-    // at once, and the second tap would never register.
+    // controls: holding the stick and tapping dash is two fingers down at once,
+    // and the second tap would never register.
     activePointers: 3
   },
 
-  scene: [BootScene]
+  // The first scene starts on its own; the rest are added stopped and are
+  // launched by the scenes that need them. Order is also draw order.
+  scene: [
+    BootScene,
+    TitleScene,
+    CharacterScene,
+    GameScene,
+    HudScene,
+    ShopScene,
+    ChoiceScene,
+    WeaponScene,
+    GameOverScene
+  ]
 });
