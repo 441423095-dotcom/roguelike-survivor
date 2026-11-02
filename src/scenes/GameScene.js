@@ -141,7 +141,7 @@ export class GameScene extends Phaser.Scene {
       outRegen: 0,
       level: 1,
       xp: 0,
-      xpNext: 30,
+      xpNext: 22,
       wave: 1,
       waveLeft: 0,
       kills: 0,

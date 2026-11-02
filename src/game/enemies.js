@@ -152,13 +152,13 @@ export function isEndlessWave(wave) {
   return wave > ENDLESS_FROM;
 }
 
-/// How long a wave lasts, in seconds: 20 at the start, five more every wave,
-/// capped at 60. The last wave of the normal run (and everything past it) is a
-/// longer 90-second push.
+/// How long a wave lasts, in seconds: 25 at the start and three more every
+/// wave, capped at fifty. Wave 20 — the last of the normal run — and everything
+/// past it stay at a longer sixty-second push.
 export function waveDuration(wave) {
   const w = Math.max(1, wave);
-  if (w >= ENDLESS_FROM) return 90;
-  return Math.min(20 + (w - 1) * 5, 60);
+  if (w >= ENDLESS_FROM) return 60;
+  return Math.min(25 + (w - 1) * 3, 50);
 }
 
 /// The whole curve in one place, so the late run cannot drift out of control:
@@ -180,34 +180,32 @@ export function waveScaling(wave) {
       Math.pow(1.05, endless),
     speed: Math.min(2.05, 1 + (w - 1) * 0.035),
     damage: Math.min(2.4, 1 + (w - 1) * 0.075),
-    count: Math.min(90, 34 + w * 3)
+    count: Math.min(90, Math.round(24 * Math.pow(1.12, w - 1)))
   };
 }
 
 /// How often a spawn tick fires, how many it drops and how many may be alive.
-/// The opening waves are deliberately thin — that is the stretch where the
-/// player builds a run — and density only levels off afterwards, so pressure
-/// comes from how hard the horde hunts rather than from a wall of bodies. Past
-/// wave 20 the ceiling keeps creeping up, one body at a time.
+/// One smooth curve for the whole run: the live ceiling grows by about 12% a
+/// wave from ten bodies to seventy-two, and the number dropped per tick follows
+/// that ceiling in a few steps rather than any single wave jumping. There is no
+/// cliff at wave six any more — the horde thickens steadily instead.
 export function waveSpawnPlan(wave) {
   const w = Math.max(1, wave);
 
-  if (w <= 5) {
-    return {
-      delay: 1750 - w * 120,
-      count: w <= 3 ? 1 : 2,
-      cap: Math.round((8 + w * 2) * 1.15)
-    };
-  }
-
-  const t = Math.min(1, (w - 5) / 15);
+  const growth = Math.pow(1.12, w - 1);
   const endless = Math.max(0, w - ENDLESS_FROM);
+  // The ceiling compounds early on, holds at seventy-two for the last stretch
+  // of the normal run, then creeps up one body a wave in endless mode.
+  const cap = Math.min(96, Math.min(72, Math.round(10 * growth)) + endless);
 
-  return {
-    delay: Math.max(640, Math.round(980 - 220 * t - endless * 8)),
-    count: Math.min(4, 2 + Math.floor((w - 5) / 4)),
-    cap: Math.min(72, Math.round(24 + 14 * t) + endless)
-  };
+  // One body a tick at first, then two, three and four as the ceiling rises.
+  const count = Math.max(1, Math.min(4, Math.ceil(cap / 20)));
+
+  // The gap between ticks shortens a little each wave, so the ceiling is
+  // actually reached instead of the wave ending half full.
+  const delay = Math.max(700, Math.round(1750 - (w - 1) * 55));
+
+  return { delay, count, cap };
 }
 
 /// Which kinds can show up, and how often. Shooters arrive on wave 3, the fast
