@@ -32,7 +32,16 @@ export class BootScene extends Phaser.Scene {
       'crosshair',
       'arrow-right',
       'zap',
-      'lock'
+      'lock',
+      'medal',
+      'check',
+      'flag',
+      'skull',
+      'users',
+      'layers',
+      'crown',
+      'coins',
+      'infinity'
     ]);
 
     this.scene.start('Title');

@@ -15,6 +15,7 @@ import {
 } from '../game/passives.js';
 import { Sfx, setMusicTrack, duckMusic } from '../game/audio.js';
 import { xpForLevel, weaponDropFactor, weaponDropKey } from '../game/loot.js';
+import { recordAchievement } from '../game/achievements.js';
 import {
   WEAPONS,
   WEAPON_SLOTS,
@@ -24,7 +25,7 @@ import {
 } from '../game/weapons.js';
 import { getCharacter } from '../game/characters.js';
 import { loadProgress, recordWave, recordRun } from '../game/progress.js';
-import { sharpenText } from '../ui/text.js';
+import { TEXT_RESOLUTION, sharpenText } from '../ui/text.js';
 import {
   ENEMY_TYPES,
   pickEnemyType,
@@ -1846,6 +1847,8 @@ export class GameScene extends Phaser.Scene {
 
     haptic('wave_clear');
 
+    this.announceAchievements(recordAchievement({ bossKills: 1 }));
+
     this.state.hp = Math.min(this.state.maxHp, this.state.hp + 20);
     for (let i = 0; i < 10; i++) {
       this.dropGem(
@@ -1997,6 +2000,18 @@ export class GameScene extends Phaser.Scene {
     // The loops switch with the stakes: a boss wave gets its own tense track.
     setMusicTrack(isBossWave(wave) ? 'boss' : 'battle');
 
+    this.announceAchievements(
+      recordAchievement(
+        {
+          wave,
+          pair: this.state.weapons.length >= 2,
+          endless: isEndlessWave(wave),
+          maxCoins: Math.floor(this.state.coins)
+        },
+        this.character.key
+      )
+    );
+
     // Reaching a deep enough wave is what unlocks the hidden characters.
     const unlocked = recordWave(wave);
     for (const character of unlocked) {
@@ -2115,6 +2130,11 @@ export class GameScene extends Phaser.Scene {
     this.state.hp = Math.min(this.state.maxHp, this.state.hp + 10);
     haptic('wave_clear');
     Sfx.waveClear();
+
+    this.announceAchievements(
+      recordAchievement({ maxCoins: Math.floor(this.state.coins) })
+    );
+
     this.openShop();
   }
 
@@ -2354,6 +2374,11 @@ export class GameScene extends Phaser.Scene {
     this.shopOpen = true;
     duckMusic(0.45);
     this.buildShopStock();
+
+    // A shelf of four or more counts as seeing four cards at once.
+    this.announceAchievements(
+      recordAchievement({ maxCards: this.shopItems.length })
+    );
 
     // One tick later, so a boss dying inside a physics step never pauses the
     // world halfway through it.
@@ -2806,6 +2831,8 @@ export class GameScene extends Phaser.Scene {
     this.drawWeaponSlots();
     Sfx.levelUp();
     haptic('level_up');
+
+    this.announceAchievements(recordAchievement({ evolved: 1 }));
     return true;
   }
 
@@ -2901,6 +2928,76 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  // ----------------------------------------------------------- achievements
+
+  /// A short gold banner whenever the archive gains something, so it is noticed
+  /// without stopping the fight.
+  announceAchievements(items) {
+    if (!items || items.length === 0) return;
+
+    haptic('level_up');
+    Sfx.levelUp();
+
+    items.forEach((def, index) => {
+      this.time.delayedCall(index * 320, () => {
+        this.showAchievementToast(def, index);
+      });
+    });
+  }
+
+  showAchievementToast(def, index) {
+    if (!this.layout) return;
+
+    const field = this.layout.field;
+    const s = this.layout.uiScale;
+    const width = Math.min(field.width - 48, 340 * s);
+    const height = Math.round(42 * s);
+    const cx = field.centerX;
+    const y = field.height * 0.17 + index * (height + 8);
+
+    const bg = this.add.graphics().setDepth(40).setAlpha(0);
+    bg.fillStyle(0x2a2413, 0.97);
+    bg.fillRoundedRect(cx - width / 2, y - height / 2, width, height, 12);
+    bg.lineStyle(2, 0xffd166, 0.85);
+    bg.strokeRoundedRect(cx - width / 2, y - height / 2, width, height, 12);
+    bg.y = -16;
+
+    const label = this.add
+      .text(cx, y, `成就达成：${def.name}`, {
+        fontFamily: FONT,
+        fontSize: `${Math.round(14 * s)}px`,
+        color: COLORS.goldHex,
+        fontStyle: 'bold'
+      })
+      .setOrigin(0.5)
+      .setDepth(41)
+      .setAlpha(0);
+    label.setResolution(TEXT_RESOLUTION);
+    label.y = y - 16;
+
+    this.tweens.add({
+      targets: [bg, label],
+      alpha: 1,
+      y: '+=16',
+      duration: 240,
+      ease: 'Cubic.out'
+    });
+
+    this.time.delayedCall(2400, () => {
+      if (!bg.active || !label.active) return;
+      this.tweens.add({
+        targets: [bg, label],
+        alpha: 0,
+        y: '-=16',
+        duration: 320,
+        onComplete: () => {
+          bg.destroy();
+          label.destroy();
+        }
+      });
+    });
+  }
+
   // ------------------------------------------------------------------- end
 
   gameOver() {
@@ -2917,6 +3014,13 @@ export class GameScene extends Phaser.Scene {
     } catch (error) {
       console.warn('Saving the run failed:', error);
     }
+
+    this.announceAchievements(
+      recordAchievement({
+        totalKills: result && result.best ? result.best.totalKills : 0,
+        maxCoins: Math.floor(this.state.coins)
+      })
+    );
 
     if (this.spawnTimer) {
       this.spawnTimer.remove();

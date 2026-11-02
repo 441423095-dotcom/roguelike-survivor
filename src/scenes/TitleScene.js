@@ -110,6 +110,20 @@ export class TitleScene extends Phaser.Scene {
 
     this.buildRecords(W, H, s);
 
+    // The archive entry, mirroring the record-clearing link on the right.
+    makeButton(this, {
+      x: 18 * s + 46 * s,
+      y: 30 * s,
+      width: 92 * s,
+      height: 30 * s,
+      icon: 'medal',
+      label: '成就',
+      fontSize: Math.round(11 * s),
+      accent: 0xffd166,
+      depth: 3,
+      onPress: () => this.openAchievements()
+    });
+
     this.add
       .text(W / 2, H * 0.87, '自动射击 · 拖动屏幕任意处移动 · 右下按钮冲刺', {
         fontFamily: FONT,
@@ -134,6 +148,11 @@ export class TitleScene extends Phaser.Scene {
   startRun() {
     haptic('tick');
     this.scene.start('Character');
+  }
+
+  openAchievements() {
+    haptic('tick');
+    this.scene.start('Achievement');
   }
 
   /// The archive strip under the start button, plus the (deliberately tucked
