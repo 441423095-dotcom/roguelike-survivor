@@ -147,6 +147,41 @@ export const UPGRADE_POOL = [
     apply(s, v) {
       s.speed *= 1 + v;
     }
+  },
+
+  // ------------------------------------------------------------- utility
+  {
+    key: 'lifesteal',
+    name: '嗜血獠牙',
+    icon: 'heart',
+    max: 5,
+    values: [0.02, 0.035, 0.05],
+    desc: (v) => `造成伤害的 ${Math.round(v * 100)}% 转化为生命`,
+    apply(s, v) {
+      s.lifesteal = Math.min(0.2, s.lifesteal + v);
+    }
+  },
+  {
+    key: 'pierce',
+    name: '贯穿弹头',
+    icon: 'crosshair',
+    max: 3,
+    values: [1, 1, 2],
+    desc: (v) => `所有子弹额外穿透 ${v} 个敌人`,
+    apply(s, v) {
+      s.pierceBonus += v;
+    }
+  },
+  {
+    key: 'splash',
+    name: '爆裂弹头',
+    icon: 'flame',
+    max: 4,
+    values: [12, 20, 30],
+    desc: (v) => `所有武器获得 ${v} 点溅射范围`,
+    apply(s, v) {
+      s.splashBonus += v;
+    }
   }
 ];
 
@@ -154,13 +189,17 @@ export const UPGRADE_BY_KEY = Object.fromEntries(
   UPGRADE_POOL.map((item) => [item.key, item])
 );
 
-/// Rolls a tier for a card. Deeper waves and a lucky hero tilt it upwards.
+/// Rolls a tier for a card. Purple cards only start showing up from wave six,
+/// and stay rare even deep in a run; luck tilts the odds but never unlocks a
+/// tier early.
 function rollTier(wave, luck) {
-  const t = Math.min(1, Math.max(0, (Math.max(1, wave) - 1) / 18));
+  const w = Math.max(1, wave);
+  const t = Math.min(1, Math.max(0, (w - 1) / 18));
   const bonus = Math.min(0.5, Math.max(0, luck) / 100);
 
-  const epicChance = Math.min(0.45, 0.04 + 0.26 * t + bonus * 0.5);
-  const rareChance = Math.min(0.5, 0.22 + 0.22 * t + bonus * 0.3);
+  const epicChance =
+    w < 6 ? 0 : Math.min(0.16, 0.01 + 0.12 * t + bonus * 0.1);
+  const rareChance = Math.min(0.34, 0.12 + 0.18 * t + bonus * 0.2);
 
   const roll = Math.random();
   if (roll < epicChance) return { tier: RARITY_TIERS[2], index: 2 };

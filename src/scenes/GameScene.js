@@ -92,6 +92,9 @@ export class GameScene extends Phaser.Scene {
     this.activeBuff = null;
     this.shopOpen = false;
     this.choiceOpen = false;
+    // Set while the level-up cards of a finished wave are handed out; the shop
+    // opens once the last one is picked.
+    this.shopAfterLevels = false;
     this.weaponChoice = null;
     this.pausedByUser = false;
     this.running = true;
@@ -962,13 +965,6 @@ export class GameScene extends Phaser.Scene {
 
     const dt = Math.min(delta, 48) / 1000;
     this.state.runTime += dt;
-
-    // A card that had to wait behind a boss, the pause menu or a weapon pick
-    // opens as soon as the screen is free again, instead of waiting for the shop.
-    if (this.levelsQueued > 0 && time > (this.bankRetryAt || 0)) {
-      this.bankRetryAt = time + 500;
-      this.openBankedCards();
-    }
 
     this.updateMovement(time, dt);
     this.updateFiring(delta);
@@ -3133,31 +3129,13 @@ export class GameScene extends Phaser.Scene {
       // roughly one per wave no matter how long the run goes.
       s.xpNext = xpForLevel(s.wave);
 
-      // The card is handed over straight away — a level that waits until the end
-      // of the wave is a level the player never notices. If something already
-      // owns the screen (a boss fight, the shop, the pause menu), it stays
-      // banked and opens the moment that closes.
+      // The card is banked, never shown mid-fight: the run is frozen once the
+      // wave is over, and the choices are taken on the way into the shop.
       this.levelsQueued = (this.levelsQueued || 0) + 1;
       haptic('level_up');
       Sfx.levelUp();
       if (this.player) this.notify('升级', this.player.x, this.player.y - 10);
     }
-
-    this.openBankedCards();
-  }
-
-  /// Opens a banked level-up card if the screen is free for it. Deferred by one
-  /// tick, so a card never pauses the world from inside a physics callback.
-  openBankedCards() {
-    if (!this.running || this.levelsQueued <= 0) return;
-    if (this.choiceOpen || this.shopOpen || this.bossFight) return;
-    if (this.weaponChoice || this.pausedByUser || this.waveEnding) return;
-
-    this.time.delayedCall(0, () => {
-      if (!this.running) return;
-      if (this.choiceOpen || this.shopOpen || this.bossFight) return;
-      this.flushLevelUps();
-    });
   }
 
   hurt(amount) {
@@ -3391,6 +3369,21 @@ export class GameScene extends Phaser.Scene {
       recordAchievement({ maxCoins: Math.floor(this.state.coins) })
     );
 
+    // Experience earned this wave is spent now, on the way into the shop, so the
+    // shop's prices are weighed against the numbers the player actually has.
+    // Deferred one tick, so a boss dying inside a physics step never freezes the
+    // world halfway through it.
+    if (this.levelsQueued > 0) {
+      this.shopAfterLevels = true;
+      this.time.delayedCall(0, () => {
+        if (!this.shopAfterLevels || !this.running) return;
+        if (this.flushLevelUps()) return;
+        this.shopAfterLevels = false;
+        this.openShop();
+      });
+      return;
+    }
+
     this.openShop();
   }
 
@@ -3595,7 +3588,7 @@ export class GameScene extends Phaser.Scene {
       return false;
     }
 
-    const cards = rollCards(this.stacks, 3, this.state.wave, this.state.luck || 0);
+    const cards = rollCards(this.stacks, 4, this.state.wave, this.state.luck || 0);
     if (cards.length === 0) return false;
 
     this.choiceOpen = true;
@@ -3631,6 +3624,14 @@ export class GameScene extends Phaser.Scene {
 
   finishChoice() {
     this.choiceOpen = false;
+
+    // The last level-up card of the wave has been picked: the shop opens now.
+    if (this.shopAfterLevels) {
+      if (this.flushLevelUps()) return;
+      this.shopAfterLevels = false;
+      this.openShop();
+      return;
+    }
 
     // Whatever happens here, the run must not be left paused with no UI.
     try {

@@ -112,56 +112,113 @@ export function rarityColor(key) {
 
 // How the shelf's quality opens up with the wave. Each anchor is the weight of
 // white / green / blue / purple / gold at that wave, and anything in between is
-// blended. The first three waves are deliberately white and green only; by wave
-// five every shelf promises at least one blue, and a deep run stops showing
-// plain white guns almost entirely.
+// blended. The tiers are also hard-gated by wave below, so a lucky run cannot
+// pull a purple card into an early shop.
 const RARITY_CURVE = [
-  { wave: 1, weights: [80, 20, 0, 0, 0] },
-  { wave: 3, weights: [62, 38, 0, 0, 0] },
-  { wave: 5, weights: [36, 40, 24, 0, 0] },
-  { wave: 7, weights: [18, 32, 40, 10, 0] },
-  { wave: 10, weights: [6, 20, 40, 30, 4] },
-  { wave: 14, weights: [0, 10, 30, 40, 20] },
-  { wave: 20, weights: [0, 2, 16, 38, 44] }
+  // Waves 1-5: white and green only, green still the rarer of the two.
+  { wave: 1, weights: [88, 12, 0, 0, 0] },
+  { wave: 5, weights: [74, 26, 0, 0, 0] },
+  // Wave 6: blue appears, as a thin slice of the shelf.
+  { wave: 6, weights: [70, 25, 5, 0, 0] },
+  { wave: 9, weights: [62, 29, 9, 0, 0] },
+  // Wave 10: purple appears, in tiny numbers.
+  { wave: 10, weights: [58, 30, 10, 2, 0] },
+  { wave: 14, weights: [50, 32, 15, 3, 0] },
+  // Wave 15: gold appears, and stays the rarest thing on the shelf.
+  { wave: 15, weights: [46, 33, 17, 3, 1] },
+  { wave: 20, weights: [38, 34, 21, 6, 1] },
+  { wave: 30, weights: [30, 34, 24, 9, 3] }
 ];
 
-/// The blend of tiers this wave rolls from, as weights in rarity order.
+// The wave each tier first becomes possible at. Below its gate a tier's weight
+// is zero no matter what the curve or the player's luck says.
+const RARITY_GATE = [1, 1, 6, 10, 15];
+
+/// The best tier a wave can roll, whatever a card's own quality floor asks for.
+export function maxRankForWave(wave) {
+  const w = Math.max(1, wave);
+  if (w >= 15) return 4;
+  if (w >= 10) return 3;
+  if (w >= 6) return 2;
+  return 1;
+}
+
+/// The blend of tiers this wave rolls from, as weights in rarity order, with
+/// every tier still locked at zero until its gate.
 export function rarityWeights(wave) {
   const w = Math.max(1, wave || 1);
   const first = RARITY_CURVE[0];
-  if (w <= first.wave) return first.weights.slice();
+  const last = RARITY_CURVE[RARITY_CURVE.length - 1];
 
-  for (let i = 1; i < RARITY_CURVE.length; i++) {
-    const from = RARITY_CURVE[i - 1];
-    const to = RARITY_CURVE[i];
-    if (w <= to.wave) {
-      const t = (w - from.wave) / (to.wave - from.wave);
-      return from.weights.map(
-        (weight, rank) => weight + (to.weights[rank] - weight) * t
-      );
+  let weights;
+  if (w <= first.wave) {
+    weights = first.weights.slice();
+  } else if (w >= last.wave) {
+    weights = last.weights.slice();
+  } else {
+    weights = first.weights.slice();
+    for (let i = 1; i < RARITY_CURVE.length; i++) {
+      const from = RARITY_CURVE[i - 1];
+      const to = RARITY_CURVE[i];
+      if (w <= to.wave) {
+        const t = (w - from.wave) / (to.wave - from.wave);
+        weights = from.weights.map(
+          (weight, rank) => weight + (to.weights[rank] - weight) * t
+        );
+        break;
+      }
     }
   }
 
-  return RARITY_CURVE[RARITY_CURVE.length - 1].weights.slice();
+  for (let rank = 0; rank < weights.length; rank++) {
+    if (w < RARITY_GATE[rank]) weights[rank] = 0;
+  }
+
+  return weights;
 }
 
-/// The worst tier a wave can still roll. Deep runs never fall back to white.
+/// The quality a shelf rolls at: the wave, tilted a little by luck but never
+/// far enough to reach a tier this wave has not unlocked yet.
+export function qualityForWave(wave, luck = 0) {
+  const w = Math.max(1, wave);
+  const raw = w + Math.max(0, luck) * 0.35;
+
+  let cap = w;
+  for (const gate of RARITY_GATE) {
+    if (gate > w) {
+      cap = gate - 0.01;
+      break;
+    }
+  }
+
+  return Math.min(raw, cap);
+}
+
+/// The worst tier a wave can still roll. White only stops showing late.
 export function rarityFloor(wave) {
   const w = Math.max(1, wave || 1);
-  if (w >= 16) return 1;
+  if (w >= 25) return 1;
   return 0;
 }
 
-/// Rolls one tier for this wave. `minRank` forces the result to be at least
-/// that good, which is how the shop promises a real weapon every visit.
+/// Rolls one tier for this wave. `minRank` asks for at least that good, but it
+/// is clamped to what the wave has unlocked, so a themed card cannot smuggle a
+/// purple into a wave-six shop.
 export function rollWeaponRarity(wave, minRank = 0) {
-  const weights = rarityWeights(wave);
-  const floor = Math.max(minRank, rarityFloor(wave), 0);
+  const w = Math.max(1, wave);
+  const weights = rarityWeights(w);
+  const floor = Math.max(
+    0,
+    Math.min(minRank, maxRankForWave(w)),
+    rarityFloor(w)
+  );
 
   let total = 0;
   for (let i = floor; i < weights.length; i++) total += weights[i];
 
-  if (total <= 0) return WEAPON_RARITIES[Math.min(floor, WEAPON_RARITIES.length - 1)];
+  if (total <= 0) {
+    return WEAPON_RARITIES[Math.min(floor, WEAPON_RARITIES.length - 1)];
+  }
 
   let roll = Math.random() * total;
   for (let i = floor; i < weights.length; i++) {
@@ -172,21 +229,20 @@ export function rollWeaponRarity(wave, minRank = 0) {
   return WEAPON_RARITIES[Math.min(floor, WEAPON_RARITIES.length - 1)];
 }
 
-/// The best tier the shelf is promised to hold: from wave five a blue weapon is
-/// always on the table, from wave nine a purple, from wave fourteen a gold.
+/// The best tier the shelf is promised to hold. From wave ten a blue card is
+/// always on the table; purple and gold are never guaranteed, they have to be
+/// rolled.
 export function shelfFloor(wave) {
   const w = Math.max(1, wave || 1);
-  if (w >= 14) return 3;
-  if (w >= 9) return 2;
-  if (w >= 5) return 2;
+  if (w >= 10) return 2;
   return 0;
 }
 
-/// The level a gun is sold at: Lv1 at the start, one more every three waves, so
+/// The level a gun is sold at: Lv1 at the start, one more every five waves, so
 /// a late shop hands out something that can actually replace what you carry.
 export function weaponLevel(wave) {
   const w = Math.max(1, wave || 1);
-  return Math.min(5, 1 + Math.floor((w - 1) / 3));
+  return Math.min(5, 1 + Math.floor((w - 1) / 5));
 }
 
 

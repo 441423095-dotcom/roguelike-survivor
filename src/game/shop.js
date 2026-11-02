@@ -7,6 +7,7 @@ import { ITEM_POOL, ITEM_BY_KEY, itemPrice, shopDiscount } from './passives.js';
 import { WEAPONS, WEAPON_SLOTS } from './weapons.js';
 import {
   rollWeaponRarity,
+  qualityForWave,
   rarityDesc,
   shelfFloor,
   weaponLevel,
@@ -254,8 +255,9 @@ function rollWeapon(
 export function rollShopItems(wave, owned, loadout, luck = 0, allowActive = true) {
   const stacks = owned || {};
   const discount = shopDiscount(stacks);
-  // 幸运 nudges the whole shelf's quality, as if the run were a little deeper.
-  const quality = wave + Math.max(0, luck) * 0.5;
+  // 幸运 tilts the shelf's quality, but never far enough to unlock a tier the
+  // wave has not reached yet.
+  const quality = qualityForWave(wave, luck);
   // What the player is already building: this is what tilts the shelf.
   const profile = buildProfile(stacks, loadout);
 

@@ -40,7 +40,9 @@ function statGroups(run) {
         { label: '攻击力加成', value: change(s.damage, base.damage), hot: true },
         { label: '攻击速度', value: change(base.fireInterval, s.fireInterval), hot: true },
         { label: '暴击率', value: `+${Math.round((s.critChance || 0) * 100)}%`, hot: true },
-        { label: '暴击伤害', value: `${Math.round((s.critMult || 2) * 100)}%` }
+        { label: '暴击伤害', value: `${Math.round((s.critMult || 2) * 100)}%` },
+        { label: '吸血', value: `+${Math.round((s.lifesteal || 0) * 100)}%`, hot: true },
+        { label: '额外穿透', value: `+${s.pierceBonus || 0}`, hot: true }
       ]
     },
     {
@@ -53,6 +55,7 @@ function statGroups(run) {
           hot: true
         },
         { label: '拾取范围', value: change(s.pickupRadius, base.pickupRadius), hot: true },
+        { label: '溅射范围', value: `+${Math.round(s.splashBonus || 0)}`, hot: true },
         { label: '幸运', value: String(s.luck || 0), hot: true }
       ]
     }
