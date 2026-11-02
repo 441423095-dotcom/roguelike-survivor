@@ -1,150 +1,151 @@
-// The level-up pool: plain numbers only. Anything that changes how a run plays —
-// odd trades, pests, poison — is sold in the shop instead (src/game/passives.js).
+// The level-up pool: character stats only, in Brotato's shape. Weapons never
+// appear here — a gun gets stronger by buying a duplicate in the shop and
+// fusing the pair — so a level-up always improves the hero herself.
 //
-// Each entry changes the run's state object in place; `max` caps its stacks.
+// Every card is rolled at one of three tiers, and the tier decides how big the
+// number is: a white card is the small version, gold is the one worth taking.
 
-import { weaponDef } from './weapons.js';
+export const RARITY_TIERS = [
+  { key: 'common', label: '普通', color: 0x39e6cd, hex: '#39e6cd' },
+  { key: 'rare', label: '稀有', color: 0xb07bff, hex: '#b07bff' },
+  { key: 'epic', label: '史诗', color: 0xffd166, hex: '#ffd166' }
+];
 
+// Kept for anything that still asks for the old shape.
 export const RARITIES = {
   common: { label: '普通', color: 0x39e6cd, hex: '#39e6cd', price: 24 },
   rare: { label: '稀有', color: 0xb07bff, hex: '#b07bff', price: 44 },
   epic: { label: '史诗', color: 0xffd166, hex: '#ffd166', price: 68 }
 };
 
+/// The stats a level can hand out. `values` is [common, rare, epic]; `apply`
+/// takes the rolled amount, so the card really is worth what it says.
 export const UPGRADE_POOL = [
-  // ------------------------------------------------------------ baseline
-  {
-    key: 'damage',
-    name: '暴力改装',
-    desc: '子弹伤害 +25%',
-    icon: 'swords',
-    rarity: 'common',
-    max: 8,
-    apply(s) {
-      s.damage *= 1.25;
-    }
-  },
-  {
-    key: 'firerate',
-    name: '连射装置',
-    desc: '射击速度 +15%',
-    icon: 'gauge',
-    rarity: 'common',
-    max: 8,
-    apply(s) {
-      s.fireInterval = Math.max(80, s.fireInterval * 0.85);
-    }
-  },
-  {
-    key: 'speed',
-    name: '轻盈步伐',
-    desc: '移动速度 +12%',
-    icon: 'footprints',
-    rarity: 'common',
-    max: 6,
-    apply(s) {
-      s.speed *= 1.12;
-    }
-  },
+  // ------------------------------------------------------------- survival
   {
     key: 'maxhp',
-    name: '坚韧体魄',
-    desc: '生命上限 +25，并回复 25',
+    name: '强健体魄',
     icon: 'heart',
-    rarity: 'common',
-    apply(s) {
-      s.maxHp += 25;
-      s.hp = Math.min(s.maxHp, s.hp + 25);
-    }
-  },
-  {
-    key: 'range',
-    name: '加长枪管',
-    desc: '射程 +18%，弹速 +10%',
-    icon: 'target',
-    rarity: 'common',
-    apply(s) {
-      s.range *= 1.18;
-      s.bulletSpeed *= 1.1;
-    }
-  },
-  {
-    key: 'magnet',
-    name: '磁力核心',
-    desc: '拾取范围 +45%',
-    icon: 'magnet',
-    rarity: 'common',
-    max: 4,
-    apply(s) {
-      s.pickupRadius *= 1.45;
-    }
-  },
-  {
-    key: 'regen',
-    name: '自愈组织',
-    desc: '每秒回复 0.8 点生命',
-    icon: 'shield',
-    rarity: 'rare',
-    max: 3,
-    apply(s) {
-      s.regen += 0.8;
-    }
-  },
-  {
-    key: 'split',
-    name: '分裂弹头',
-    desc: '每次多发射一颗子弹',
-    icon: 'sparkles',
-    rarity: 'rare',
-    max: 4,
-    apply(s) {
-      s.projectiles += 1;
-    }
-  },
-
-  // ---------------------------------------------------------- mechanics
-  {
-    key: 'pierce',
-    name: '裂空弹',
-    desc: '所有子弹额外穿透 1 个敌人',
-    icon: 'arrow-right',
-    rarity: 'rare',
-    max: 2,
-    apply(s) {
-      s.pierceBonus += 1;
-    }
-  },
-  {
-    key: 'crit',
-    name: '致命一击',
-    desc: '15% 概率暴击（伤害 ×2），暴击额外掉落 1 金币',
-    icon: 'target',
-    rarity: 'rare',
-    max: 3,
-    apply(s) {
-      s.critChance += 0.15;
+    max: 10,
+    values: [10, 16, 24],
+    desc: (v) => `生命上限 +${v}`,
+    apply(s, v) {
+      s.maxHp += v;
+      s.hp = Math.min(s.maxHp, s.hp + v);
     }
   },
   {
     key: 'armor',
     name: '合金护板',
-    desc: '受到的伤害降低 8%',
     icon: 'shield',
-    rarity: 'rare',
-    max: 4,
-    apply(s) {
-      s.armor = Math.min(0.6, s.armor + 0.08);
+    max: 8,
+    values: [0.02, 0.035, 0.05],
+    desc: (v) => `受到的伤害 -${Math.round(v * 100)}%`,
+    apply(s, v) {
+      s.armor = Math.min(0.6, s.armor + v);
     }
   },
   {
-    key: 'lifesteal',
-    name: '嗜血',
-    desc: '造成伤害的 4% 回复为生命',
-    icon: 'heart',
-    rarity: 'epic',
-    max: 3,
-    apply(s) {
-      s.lifesteal += 0.04;
+    key: 'regen',
+    name: '自愈组织',
+    icon: 'sparkles',
+    max: 6,
+    values: [1, 1.6, 2.4],
+    desc: (v) => `每秒回复 ${v} 点生命`,
+    apply(s, v) {
+      s.regen += v;
+    }
+  },
+  {
+    key: 'dodge',
+    name: '残影步',
+    icon: 'footprints',
+    max: 4,
+    values: [0.05, 0.08, 0.12],
+    desc: (v) => `${Math.round(v * 100)}% 概率闪避伤害`,
+    apply(s, v) {
+      s.dodge = Math.min(0.5, (s.dodge || 0) + v);
+    }
+  },
+
+  // ------------------------------------------------------------ offence
+  {
+    key: 'firerate',
+    name: '超频供弹',
+    icon: 'zap',
+    max: 8,
+    values: [0.1, 0.16, 0.24],
+    desc: (v) => `攻击速度 +${Math.round(v * 100)}%`,
+    apply(s, v) {
+      s.fireInterval = Math.max(60, s.fireInterval * (1 - v));
+    }
+  },
+  {
+    key: 'damage',
+    name: '暴力改装',
+    icon: 'swords',
+    max: 8,
+    values: [0.08, 0.13, 0.2],
+    desc: (v) => `整体伤害 +${Math.round(v * 100)}%`,
+    apply(s, v) {
+      s.damage *= 1 + v;
+    }
+  },
+  {
+    key: 'crit',
+    name: '致命瞄准',
+    icon: 'target',
+    max: 6,
+    values: [0.05, 0.08, 0.12],
+    desc: (v) => `暴击率 +${Math.round(v * 100)}%`,
+    apply(s, v) {
+      s.critChance = Math.min(0.9, s.critChance + v);
+    }
+  },
+  {
+    key: 'critdmg',
+    name: '处决专精',
+    icon: 'crosshair',
+    max: 5,
+    values: [0.2, 0.32, 0.5],
+    desc: (v) => `暴击伤害 +${Math.round(v * 100)}%`,
+    apply(s, v) {
+      s.critMult += v;
+    }
+  },
+  {
+    key: 'magnet',
+    name: '磁力核心',
+    icon: 'magnet',
+    max: 5,
+    values: [0.3, 0.45, 0.7],
+    desc: (v) => `拾取范围 +${Math.round(v * 100)}%`,
+    apply(s, v) {
+      s.pickupRadius *= 1 + v;
+    }
+  },
+
+  // ------------------------------------------------------------- special
+  {
+    key: 'luck',
+    name: '幸运硬币',
+    icon: 'coins',
+    max: 6,
+    values: [5, 8, 12],
+    desc: (v) => `幸运 +${v}：商店与掉落的品质更好`,
+    apply(s, v) {
+      s.luck = (s.luck || 0) + v;
+    }
+  },
+  {
+    key: 'speed',
+    name: '轻盈步伐',
+    icon: 'gauge',
+    max: 6,
+    values: [0.08, 0.12, 0.18],
+    desc: (v) => `移动速度 +${Math.round(v * 100)}%`,
+    apply(s, v) {
+      s.speed *= 1 + v;
     }
   }
 ];
@@ -153,41 +154,46 @@ export const UPGRADE_BY_KEY = Object.fromEntries(
   UPGRADE_POOL.map((item) => [item.key, item])
 );
 
-/// Three cards in random order: pool upgrades that have not hit their cap, plus
-/// one strengthening card for each weapon the player is carrying.
-export function rollCards(stacks, count, weapons = []) {
-  const candidates = [];
+/// Rolls a tier for a card. Deeper waves and a lucky hero tilt it upwards.
+function rollTier(wave, luck) {
+  const t = Math.min(1, Math.max(0, (Math.max(1, wave) - 1) / 18));
+  const bonus = Math.min(0.5, Math.max(0, luck) / 100);
 
-  for (const item of UPGRADE_POOL) {
-    if (item.max && (stacks[item.key] || 0) >= item.max) continue;
-    candidates.push({
-      key: item.key,
-      name: item.name,
-      desc: item.desc,
-      icon: item.icon,
-      rarity: item.rarity || 'common',
-      level: (stacks[item.key] || 0) + 1
-    });
-  }
+  const epicChance = Math.min(0.45, 0.04 + 0.26 * t + bonus * 0.5);
+  const rareChance = Math.min(0.5, 0.22 + 0.22 * t + bonus * 0.3);
 
-  for (const slot of weapons) {
-    const def = weaponDef(slot);
-    if (!def) continue;
-    candidates.push({
-      key: `weapon:${slot.key}`,
-      name: `${def.name} 强化`,
-      desc: '这件武器伤害 +20%，射速 +8%',
-      icon: def.icon || 'crosshair',
-      rarity: 'rare',
-      level: (slot.level || 1) + 1
-    });
-  }
+  const roll = Math.random();
+  if (roll < epicChance) return { tier: RARITY_TIERS[2], index: 2 };
+  if (roll < epicChance + rareChance) return { tier: RARITY_TIERS[1], index: 1 };
+  return { tier: RARITY_TIERS[0], index: 0 };
+}
 
-  const pool = candidates.slice();
+/// Three stat cards in random order, each at its own rolled tier. Weapons are
+/// deliberately absent: those grow through the shop's fusions instead.
+export function rollCards(stacks, count, wave = 1, luck = 0) {
+  const pool = UPGRADE_POOL.filter(
+    (item) => !item.max || (stacks[item.key] || 0) < item.max
+  );
+
   const picked = [];
   while (picked.length < count && pool.length > 0) {
     const index = Math.floor(Math.random() * pool.length);
-    picked.push(pool.splice(index, 1)[0]);
+    const stat = pool.splice(index, 1)[0];
+    const { tier, index: tierIndex } = rollTier(wave, luck);
+    const value = stat.values[tierIndex];
+
+    picked.push({
+      key: stat.key,
+      name: stat.name,
+      desc: stat.desc(value),
+      icon: stat.icon,
+      value,
+      rarity: tier.key,
+      rarityLabel: tier.label,
+      color: tier.color,
+      hex: tier.hex,
+      level: (stacks[stat.key] || 0) + 1
+    });
   }
 
   return picked;

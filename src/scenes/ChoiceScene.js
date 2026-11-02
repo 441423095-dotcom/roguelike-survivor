@@ -84,29 +84,34 @@ export class ChoiceScene extends Phaser.Scene {
   }
 
   buildCard(card, cx, cy, w, h, s) {
+    const colour = Number.isFinite(card.color) ? card.color : COLORS.accent;
+    const hex = card.hex || COLORS.accentHex;
+
     const g = this.add.graphics().setDepth(2);
     const paint = (highlight) => {
       g.clear();
       g.fillStyle(highlight ? 0x1d3a38 : 0x0f1521, 0.97);
       g.fillRoundedRect(cx - w / 2, cy - h / 2, w, h, 14);
-      g.lineStyle(2, highlight ? COLORS.accent : 0x2bd3c4, highlight ? 1 : 0.32);
+      g.fillStyle(colour, highlight ? 0.1 : 0.06);
+      g.fillRoundedRect(cx - w / 2, cy - h / 2, w, h, 14);
+      g.lineStyle(2, highlight ? COLORS.accent : colour, highlight ? 1 : 0.55);
       g.strokeRoundedRect(cx - w / 2, cy - h / 2, w, h, 14);
     };
     paint(false);
 
-    const iconSize = Math.min(h * 0.46, 40 * s);
+    const iconSize = Math.min(h * 0.5, 44 * s);
     const iconX = cx - w / 2 + 20 * s + iconSize / 2;
     this.add
       .image(iconX, cy, `icon-${card.icon}`)
       .setDisplaySize(iconSize, iconSize)
-      .setTint(COLORS.accent)
+      .setTint(colour)
       .setDepth(3);
 
     const textX = iconX + iconSize / 2 + 16 * s;
     const wrapWidth = Math.max(60, cx + w / 2 - 16 * s - textX);
 
     this.add
-      .text(textX, cy - h * 0.18, card.name, {
+      .text(textX, cy - h * 0.2, card.name, {
         fontFamily: FONT,
         fontSize: `${Math.round(17 * s)}px`,
         color: COLORS.ink,
@@ -116,20 +121,33 @@ export class ChoiceScene extends Phaser.Scene {
       .setDepth(3);
 
     this.add
-      .text(textX, cy + h * 0.2, card.desc, {
+      .text(textX, cy + h * 0.16, card.desc, {
         fontFamily: FONT,
         fontSize: `${Math.round(13 * s)}px`,
         color: COLORS.dim,
-        wordWrap: { width: wrapWidth }
+        wordWrap: { width: wrapWidth, useAdvancedWrap: true }
       })
       .setOrigin(0, 0.5)
       .setDepth(3);
 
+    // The tier of the card, and how many times this stat has been taken.
+    if (card.rarityLabel) {
+      this.add
+        .text(cx + w / 2 - 14 * s, cy - h * 0.2, card.rarityLabel, {
+          fontFamily: FONT,
+          fontSize: `${Math.round(11 * s)}px`,
+          color: hex,
+          fontStyle: 'bold'
+        })
+        .setOrigin(1, 0.5)
+        .setDepth(3);
+    }
+
     if (card.level > 1) {
       this.add
-        .text(cx + w / 2 - 14 * s, cy, `Lv${card.level}`, {
+        .text(cx + w / 2 - 14 * s, cy + h * 0.16, `Lv${card.level}`, {
           fontFamily: FONT,
-          fontSize: `${Math.round(13 * s)}px`,
+          fontSize: `${Math.round(12 * s)}px`,
           color: COLORS.goldHex
         })
         .setOrigin(1, 0.5)
@@ -147,7 +165,7 @@ export class ChoiceScene extends Phaser.Scene {
     paint(true);
 
     const run = this.scene.get('Game');
-    if (run && run.applyUpgrade) run.applyUpgrade(card.key);
+    if (run && run.applyUpgrade) run.applyUpgrade(card.key, card.value);
     if (this.kind === 'wave' && run && run.startNextWave) run.startNextWave();
 
     this.time.delayedCall(160, () => {

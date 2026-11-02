@@ -131,6 +131,8 @@ export class GameScene extends Phaser.Scene {
       lifesteal: 0,
       critChance: 0,
       critMult: 2,
+      dodge: 0,
+      luck: 0,
       pierceBonus: 0,
       slowOnHit: 0,
       outRegen: 0,
@@ -168,6 +170,9 @@ export class GameScene extends Phaser.Scene {
     };
 
     this.stacks = {};
+    // Every level card taken, in order with its rolled value, so the run's
+    // stats can be rebuilt exactly when an item is sold.
+    this.cardHistory = [];
 
     // Everything bought in the shop, passive and active, keyed by item and
     // holding a stack count. The two charge figures are the frog's and the
@@ -2777,6 +2782,15 @@ export class GameScene extends Phaser.Scene {
     if (!this.running) return;
 
     const s = this.state;
+
+    // 残影步: a share of hits simply misses.
+    if (s.dodge > 0 && Math.random() < s.dodge) {
+      this.invulnUntil = this.time.now + 320;
+      this.notify('闪避', this.player.x, this.player.y);
+      Sfx.click();
+      return;
+    }
+
     const taken = amount * (1 - (s.armor || 0));
     s.hp = Math.max(0, s.hp - taken);
     this.lastHurtAt = this.time.now;
@@ -3168,7 +3182,7 @@ export class GameScene extends Phaser.Scene {
       return false;
     }
 
-    const cards = rollCards(this.stacks, 3, this.state.weapons);
+    const cards = rollCards(this.stacks, 3, this.state.wave, this.state.luck || 0);
     if (cards.length === 0) return false;
 
     this.choiceOpen = true;
@@ -3226,7 +3240,7 @@ export class GameScene extends Phaser.Scene {
     this.scene.resume();
   }
 
-  applyUpgrade(key) {
+  applyUpgrade(key, value) {
     if (key.startsWith('weapon:')) {
       const weaponKey = key.slice('weapon:'.length);
       const slot = this.state.weapons.find((w) => w.key === weaponKey);
@@ -3241,7 +3255,9 @@ export class GameScene extends Phaser.Scene {
     if (!item) return;
 
     this.stacks[key] = (this.stacks[key] || 0) + 1;
-    item.apply(this.state);
+    this.cardHistory.push({ key, value });
+    item.apply(this.state, value);
+
     this.clampPlayerStats();
     if (this.state.hp > this.state.maxHp) this.state.hp = this.state.maxHp;
   }
@@ -3303,7 +3319,8 @@ export class GameScene extends Phaser.Scene {
     const fresh = rollShopItems(
       this.state.wave,
       this.items,
-      this.state.weapons
+      this.state.weapons,
+      this.state.luck || 0
     );
     const items = fresh.filter((item) => item.kind !== 'weapon');
     const weapons = fresh.filter((item) => item.kind === 'weapon');
@@ -3932,6 +3949,9 @@ export class GameScene extends Phaser.Scene {
     s.armor = 0;
     s.lifesteal = 0;
     s.critChance = 0;
+    s.critMult = 2;
+    s.dodge = 0;
+    s.luck = 0;
     s.projectiles = 1;
     s.pierceBonus = 0;
     s.slowOnHit = 0;
@@ -3944,10 +3964,10 @@ export class GameScene extends Phaser.Scene {
     s.coinCap = Number.POSITIVE_INFINITY;
     s.coinMult = 1;
 
-    for (const key of Object.keys(this.stacks)) {
-      const def = UPGRADE_BY_KEY[key];
+    for (const card of this.cardHistory) {
+      const def = UPGRADE_BY_KEY[card.key];
       if (!def) continue;
-      for (let i = 0; i < this.stacks[key]; i++) def.apply(s);
+      def.apply(s, card.value);
     }
 
     for (const key of Object.keys(this.items)) {
