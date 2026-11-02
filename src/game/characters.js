@@ -1,71 +1,116 @@
-// The playable characters. Each one starts a run with different numbers and a
-// portrait of its own; the last two have to be earned.
+// The playable characters. Each one starts a run with different numbers, its own
+// look and one exclusive skill that decides how it is played; the last two have
+// to be earned.
+//
+// The keys are the save-file identity, so they never change even though the
+// names on screen do.
 
 export const CHARACTERS = [
   {
     key: 'spud',
-    name: '土豆',
-    tagline: '全能',
-    desc: '生命、伤害与射速都不偏科。',
+    name: '小明',
+    tagline: '均衡者',
+    desc: '什么流派都玩得转的起点角色。',
     texture: 'hero',
+    icon: 'sparkles',
     color: 0x39e6cd,
     hp: 100,
     damage: 12,
     fireInterval: 460,
     speed: 235,
-    unlock: null
+    unlock: null,
+    skill: {
+      key: 'adapt',
+      name: '随遇而安',
+      text: '每过 3 波，随机获得一项永久属性提升',
+      icon: 'sparkles',
+      color: 0x9ce6ff
+    }
   },
   {
     key: 'iron',
-    name: '铁皮',
-    tagline: '重甲',
-    desc: '血量极高，但走得很慢。',
+    name: '铁憨憨',
+    tagline: '重装坦克',
+    desc: '血量极高、走得很慢；只能带被动道具。',
     texture: 'hero-iron',
+    icon: 'shield',
     color: 0x8e9aa6,
     hp: 170,
     damage: 13,
     fireInterval: 540,
     speed: 198,
-    unlock: null
+    noActive: true,
+    unlock: null,
+    skill: {
+      key: 'thorns',
+      name: '反伤重甲',
+      text: '受伤时对周围敌人造成最大生命 6% 的伤害',
+      icon: 'shield',
+      color: 0xffd166
+    }
   },
   {
     key: 'spark',
-    name: '闪电',
-    tagline: '速射',
-    desc: '射速惊人，但身板很薄。',
+    name: '幻影',
+    tagline: '脆皮刺客',
+    desc: '暴击极高，但身板薄、受伤翻倍。',
     texture: 'hero-spark',
+    icon: 'target',
     color: 0xc86bff,
     hp: 80,
     damage: 10,
     fireInterval: 315,
     speed: 245,
-    unlock: null
+    unlock: null,
+    skill: {
+      key: 'phase',
+      name: '极限闪避',
+      text: '移动时 10% 概率闪过子弹；暴击 +30%，受伤 ×2',
+      icon: 'target',
+      color: 0x8ef0ff
+    }
   },
   {
     key: 'gale',
-    name: '疾风',
-    tagline: '疾行',
-    desc: '跑得比怪物快得多，适合绕圈风筝。',
+    name: '风行者',
+    tagline: '跑酷达人',
+    desc: '跑得比怪物快得多，靠走位风筝一切。',
     texture: 'hero-gale',
+    icon: 'footprints',
     color: 0x8ef0b0,
     hp: 95,
     damage: 12,
     fireInterval: 430,
     speed: 310,
-    unlock: { type: 'wave', value: 8, text: '活到第 8 波解锁' }
+    unlock: { type: 'wave', value: 8, text: '活到第 8 波解锁' },
+    skill: {
+      key: 'kinetic',
+      name: '动能转化',
+      text: '每移动 100 距离，下一击必定暴击；站着不动伤害逐渐降低',
+      icon: 'footprints',
+      color: 0xffe27a
+    }
   },
   {
     key: 'ember',
-    name: '炮手',
-    tagline: '重火力',
-    desc: '子弹很重，射速偏慢。',
+    name: '爆破狂',
+    tagline: '重火力狂',
+    desc: '子弹很重、射速偏慢，一发就能清一片。',
     texture: 'hero-ember',
+    icon: 'flame',
     color: 0xf0a05a,
     hp: 120,
     damage: 20,
     fireInterval: 640,
     speed: 215,
-    unlock: { type: 'kills', value: 250, text: '累计击杀 250 解锁' }
+    unlock: { type: 'kills', value: 250, text: '累计击杀 250 解锁' },
+    skill: {
+      key: 'barrage',
+      name: '火力覆盖',
+      text: '射程 +30%，所有武器附带溅射；射速 -17%',
+      icon: 'flame',
+      color: 0xff9a3f
+    }
   }
 ];
 

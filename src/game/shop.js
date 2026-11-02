@@ -25,16 +25,19 @@ function roundPrice(value) {
   return Math.max(10, Math.round(value / 5) * 5);
 }
 
-function rollItems(wave, stacks, count, discount, quality = wave) {
-  const available = ITEM_POOL.filter(
+function rollItems(wave, stacks, count, discount, quality = wave, allowActive = true) {
+  let available = ITEM_POOL.filter(
     (def) => (stacks[def.key] || 0) < (def.max || 1)
   );
+
+  // A character that cannot carry actives is never even shown them.
+  if (!allowActive) available = available.filter((def) => !def.active);
 
   if (available.length === 0) return [];
 
   const chosen = [];
   const used = [];
-  let wantActive = Math.random() < 0.5;
+  let wantActive = allowActive && Math.random() < 0.5;
 
   for (let i = 0; i < count; i++) {
     let pool = available.filter(
@@ -138,7 +141,7 @@ function rollWeapon(wave, loadout, minRank = 0, quality = wave) {
 /// carried weapons, so nothing at its cap or impossible to take is offered. The
 /// trinkets come first and the weapons after them, which is the order the shop
 /// draws them in: items on the top shelf, weapons below them.
-export function rollShopItems(wave, owned, loadout, luck = 0) {
+export function rollShopItems(wave, owned, loadout, luck = 0, allowActive = true) {
   const stacks = owned || {};
   const discount = shopDiscount(stacks);
   // 幸运 nudges the whole shelf's quality, as if the run were a little deeper.
@@ -172,7 +175,8 @@ export function rollShopItems(wave, owned, loadout, luck = 0) {
     stacks,
     weapons.length > 0 ? ITEM_SLOTS : SHOP_SLOTS,
     discount,
-    quality
+    quality,
+    allowActive
   );
 
   return items.concat(weapons);

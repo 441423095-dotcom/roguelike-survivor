@@ -199,6 +199,19 @@ export class GameScene extends Phaser.Scene {
       damage: this.state.damage
     };
 
+    // The character's exclusive skill, plus the little gifts 随遇而安 hands out
+    // along the way. `baseRun` above is the pre-skill snapshot, so selling an
+    // item rebuilds the run from these and applies the skill on top again.
+    this.skillBonuses = [];
+    this.damageTakenMult =
+      this.character.skill && this.character.skill.key === 'phase' ? 2 : 1;
+    this.chargedShot = false;
+    this.runDist = 0;
+    this.idleTime = 0;
+    this.tempo = 1;
+    this.isMoving = false;
+    this.applyCharacterStats(this.state);
+
     this.cameras.main.setBackgroundColor(0x070a10);
 
     this.buildWorld();
@@ -211,6 +224,18 @@ export class GameScene extends Phaser.Scene {
     this.startWave(1);
     this.scene.launch('Hud');
     this.cameras.main.fadeIn(320, 7, 10, 16);
+
+    // One reminder of what makes this character different, then out of the way.
+    if (this.character.skill) {
+      this.time.delayedCall(520, () => {
+        if (!this.running) return;
+        this.notify(
+          `${this.character.name} · ${this.character.skill.name}`,
+          this.layout.width / 2,
+          this.layout.height * 0.3
+        );
+      });
+    }
 
     sharpenText(this);
 
@@ -925,7 +950,7 @@ export class GameScene extends Phaser.Scene {
     const dt = Math.min(delta, 48) / 1000;
     this.state.runTime += dt;
 
-    this.updateMovement(time);
+    this.updateMovement(time, dt);
     this.updateFiring(delta);
     this.updateEnemies(delta);
     this.updatePickups(dt);
@@ -961,7 +986,7 @@ export class GameScene extends Phaser.Scene {
   /// the dead zone is small so movement starts almost at once, and pushing
   /// further from the origin gives a little extra speed — a gentle nudge towards
   /// the thumb rather than the old teleport.
-  updateMovement(time) {
+  updateMovement(time, dt) {
     const p = this.joyPointer;
 
     if (p && p.isDown) {
@@ -1006,6 +1031,31 @@ export class GameScene extends Phaser.Scene {
       this.player.setAlpha(Math.floor(time / 90) % 2 === 0 ? 0.4 : 1);
     } else if (this.player.alpha !== 1) {
       this.player.setAlpha(1);
+    }
+
+    // 风行者: distance walked arms the next hit; standing still saps the guns.
+    this.isMoving = !!(
+      this.player.body && this.player.body.velocity.lengthSq() > 4
+    );
+
+    const skill = this.character.skill;
+    if (skill && skill.key === 'kinetic') {
+      if (this.isMoving) {
+        this.idleTime = 0;
+        this.runDist += this.player.body.velocity.length() * dt;
+
+        if (this.runDist >= 100) {
+          this.runDist -= 100;
+          if (!this.chargedShot) {
+            this.chargedShot = true;
+            this.spawnBurst(this.player.x, this.player.y, 0xffe27a, 4);
+          }
+        }
+      } else {
+        this.idleTime += dt;
+      }
+
+      this.tempo = 1 - 0.3 * Math.min(1, this.idleTime / 2.5);
     }
   }
 
@@ -1088,7 +1138,9 @@ export class GameScene extends Phaser.Scene {
         Math.cos(angle) * stats.speed,
         Math.sin(angle) * stats.speed
       );
-      bullet.setData('damage', stats.damage);
+      // 风行者 pays for standing still: the shot is worth less the longer the
+      // player has been rooted.
+      bullet.setData('damage', stats.damage * (this.tempo || 1));
       bullet.setData('pierce', (stats.pierce || 0) + this.state.pierceBonus);
       bullet.setData('slow', stats.slow || 0);
       bullet.setData('splash', stats.splash || 0);
@@ -1347,6 +1399,20 @@ export class GameScene extends Phaser.Scene {
     // Dashing carries the player clean through enemy fire, and the hurt
     // recovery window does the same: neither one takes the hit.
     if (now < this.dashUntil || now < this.invulnUntil) return;
+
+    // 极限闪避: on the move, the phantom slips a tenth of all incoming fire.
+    if (
+      this.isMoving &&
+      this.character.skill &&
+      this.character.skill.key === 'phase' &&
+      Math.random() < 0.1
+    ) {
+      this.spawnBurst(shot.x, shot.y, 0x8ef0ff, 3);
+      this.kill(shot);
+      this.notify('闪避', this.player.x, this.player.y);
+      Sfx.click();
+      return;
+    }
 
     const damage = shot.getData('damage') || 7;
     this.spawnBurst(shot.x, shot.y, 0xff3d8b, 4);
@@ -2557,8 +2623,15 @@ export class GameScene extends Phaser.Scene {
     }
 
     let damage = bullet.getData('damage') || 1;
+
+    // 动能转化: a hundred pixels of running arms the next hit, whatever the dice
+    // say.
+    const charged = !!this.chargedShot;
+    if (charged) this.chargedShot = false;
+
     const crit =
-      this.state.critChance > 0 && Math.random() < this.state.critChance;
+      charged ||
+      (this.state.critChance > 0 && Math.random() < this.state.critChance);
     if (crit) {
       damage *= this.state.critMult;
       this.dropCoin(enemy.x, enemy.y, 14);
@@ -2883,7 +2956,9 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const taken = amount * (1 - (s.armor || 0));
+    // 幻影 pays for its crits with twice the sting.
+    const taken =
+      amount * (1 - (s.armor || 0)) * (this.damageTakenMult || 1);
     s.hp = Math.max(0, s.hp - taken);
     this.lastHurtAt = this.time.now;
     this.invulnUntil = this.time.now + 600;
@@ -2902,6 +2977,11 @@ export class GameScene extends Phaser.Scene {
     haptic('hurt');
     Sfx.hurt();
 
+    // 反伤重甲: whatever lands on the tank is thrown back at everything near it.
+    if (this.character.skill && this.character.skill.key === 'thorns') {
+      this.thornsBurst();
+    }
+
     if (s.hp <= 0) this.gameOver();
   }
 
@@ -2919,6 +2999,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     s.wave = wave;
+    // 随遇而安: every third wave leaves something permanent behind.
+    this.applyAdaptBonus(wave);
     // Whatever was banked toward the next level is re-measured against this
     // wave's price, so a cheap level cannot be saved up across waves.
     s.xpNext = Math.max(s.xpNext, xpForLevel(wave));
@@ -3354,6 +3436,93 @@ export class GameScene extends Phaser.Scene {
     if (this.state.hp > this.state.maxHp) this.state.hp = this.state.maxHp;
   }
 
+  // ------------------------------------------------------------------ skills
+
+  /// The numbers a character's skill changes for the whole run. Applied when the
+  /// run starts and again whenever an item is sold and the stats are rebuilt.
+  applyCharacterStats(s) {
+    const skill = this.character && this.character.skill;
+    if (!skill) return;
+
+    if (skill.key === 'phase') {
+      // 幻影: crits land far more often, and every hit stings twice as much.
+      s.critChance = Math.min(0.9, (s.critChance || 0) + 0.3);
+    } else if (skill.key === 'barrage') {
+      // 爆破狂: a wider reach and a splinter of splash on everything, slower.
+      s.range *= 1.3;
+      s.fireInterval *= 1.2;
+      s.splashBonus = (s.splashBonus || 0) + 40;
+    }
+  }
+
+  /// One permanent little gift from 随遇而安.
+  applySkillBonus(s, key) {
+    if (key === 'maxhp') {
+      s.maxHp += 5;
+      s.hp = Math.min(s.maxHp, s.hp + 5);
+    } else if (key === 'damage') {
+      s.damage *= 1.05;
+    } else if (key === 'firerate') {
+      s.fireInterval *= 0.95;
+    } else if (key === 'speed') {
+      s.speed *= 1.04;
+    } else if (key === 'armor') {
+      s.armor = Math.min(0.6, (s.armor || 0) + 0.02);
+    } else if (key === 'crit') {
+      s.critChance = Math.min(0.9, (s.critChance || 0) + 0.03);
+    }
+  }
+
+  /// 随遇而安: every third wave hands out one permanent stat, chosen at random.
+  applyAdaptBonus(wave) {
+    const skill = this.character && this.character.skill;
+    if (!skill || skill.key !== 'adapt' || wave % 3 !== 0) return;
+
+    const options = [
+      { key: 'maxhp', label: '生命上限 +5' },
+      { key: 'damage', label: '攻击力 +5%' },
+      { key: 'firerate', label: '攻速 +5%' },
+      { key: 'speed', label: '移速 +4%' },
+      { key: 'armor', label: '护甲 +2%' },
+      { key: 'crit', label: '暴击 +3%' }
+    ];
+
+    const pick = options[Math.floor(Math.random() * options.length)];
+    this.skillBonuses.push(pick.key);
+    this.applySkillBonus(this.state, pick.key);
+
+    haptic('level_up');
+    this.notify(
+      `随遇而安：${pick.label}`,
+      this.layout.width / 2,
+      this.layout.height * 0.24
+    );
+  }
+
+  /// 反伤重甲: whatever lands on the tank is thrown back at everything close.
+  thornsBurst() {
+    const radius = 78;
+    const damage = Math.max(2, this.state.maxHp * 0.06);
+    const player = this.player;
+
+    const ring = this.add
+      .circle(player.x, player.y, radius, 0xffd166, 0.18)
+      .setDepth(5);
+    this.tweens.add({
+      targets: ring,
+      alpha: 0,
+      scale: 1.35,
+      duration: 260,
+      onComplete: () => ring.destroy()
+    });
+
+    for (const enemy of this.enemies.getChildren()) {
+      if (!enemy.active) continue;
+      const d = Phaser.Math.Distance.Between(player.x, player.y, enemy.x, enemy.y);
+      if (d <= radius) this.damageEnemy(enemy, damage);
+    }
+  }
+
   /// Caps runaway stacking, so a long run cannot turn into a free ride: damage
   /// tops out at five times its starting figure, fire rate at four, and the
   /// defensive stats are held down too. The level-up pool stops offering the
@@ -3412,7 +3581,8 @@ export class GameScene extends Phaser.Scene {
       this.state.wave,
       this.items,
       this.state.weapons,
-      this.state.luck || 0
+      this.state.luck || 0,
+      !this.character.noActive
     );
     const items = fresh.filter((item) => item.kind !== 'weapon');
     const weapons = fresh.filter((item) => item.kind === 'weapon');
@@ -3492,6 +3662,8 @@ export class GameScene extends Phaser.Scene {
   addItem(key) {
     const def = ITEM_BY_KEY[key];
     if (!def) return false;
+    // 铁憨憨 can only carry passives: an active gadget simply will not take.
+    if (def.active && this.character.noActive) return false;
 
     const have = this.items[key] || 0;
     if (have >= (def.max || 1)) return false;
@@ -4069,6 +4241,11 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.items.rustycoin) s.coinMult = 2;
+
+    // The skill's own modifiers and every 随遇而安 gift go back on top, so a sale
+    // can never quietly strip them.
+    this.applyCharacterStats(s);
+    for (const key of this.skillBonuses) this.applySkillBonus(s, key);
 
     this.clampPlayerStats();
     s.hp = Math.min(s.hp, s.maxHp);

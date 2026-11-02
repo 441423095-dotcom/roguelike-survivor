@@ -46,6 +46,12 @@ function statGroups(run) {
     {
       title: '其他',
       rows: [
+        {
+          label: '专属技能',
+          value:
+            (run.character && run.character.skill && run.character.skill.name) || '—',
+          hot: true
+        },
         { label: '拾取范围', value: change(s.pickupRadius, base.pickupRadius), hot: true },
         { label: '幸运', value: String(s.luck || 0), hot: true }
       ]

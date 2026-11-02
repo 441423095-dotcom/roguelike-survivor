@@ -12,6 +12,19 @@ import { CHARACTERS, getCharacter } from '../game/characters.js';
 import { loadProgress, isUnlocked, selectCharacter } from '../game/progress.js';
 import { metaCharacterUnlocked } from '../game/meta.js';
 
+/// A numeric colour as a CSS string, for text.
+function hexOf(color) {
+  return `#${color.toString(16).padStart(6, '0')}`;
+}
+
+/// A near-black version of a colour, for the portrait tile behind a sprite.
+function shade(color, factor) {
+  const r = Math.round(((color >> 16) & 0xff) * factor);
+  const g = Math.round(((color >> 8) & 0xff) * factor);
+  const b = Math.round((color & 0xff) * factor);
+  return (r << 16) | (g << 8) | b;
+}
+
 export class CharacterScene extends Phaser.Scene {
   constructor() {
     super('Character');
@@ -64,7 +77,7 @@ export class CharacterScene extends Phaser.Scene {
       .setDepth(2);
 
     this.add
-      .text(W / 2, titleY + 24 * s, '不同的初始属性，选好再出发', {
+      .text(W / 2, titleY + 24 * s, '五位角色，五套专属技能，选好再出发', {
         fontFamily: FONT,
         fontSize: `${Math.round(11.5 * s)}px`,
         color: COLORS.dim
@@ -88,9 +101,10 @@ export class CharacterScene extends Phaser.Scene {
     const bottom = H - 92 * s;
     const count = CHARACTERS.length;
     const avail = Math.max(200, bottom - top);
+    // Tall enough for four lines: name, numbers, the highlighted skill, a note.
     const cardH = Math.max(
-      56,
-      Math.min(104 * s, (avail - gap * (count - 1)) / count)
+      92,
+      Math.min(122 * s, (avail - gap * (count - 1)) / count)
     );
     const groupH = cardH * count + gap * (count - 1);
     const startY = top + Math.max(0, (avail - groupH) / 2);
@@ -119,19 +133,34 @@ export class CharacterScene extends Phaser.Scene {
   buildCard(character, cx, cy, w, h, s) {
     const g = this.add.graphics().setDepth(2);
 
-    const portraitSize = Math.min(h * 0.78, 64 * s);
-    const portraitX = cx - w / 2 + 12 * s + portraitSize / 2;
+    // The portrait sits on a tile in the character's own colour, with a small
+    // faction badge on it, so the five cards are told apart at a glance.
+    const tileSize = Math.min(h - 14 * s, 60 * s);
+    const tileX = cx - w / 2 + 10 * s;
+    const tileY = cy - tileSize / 2;
 
     const portrait = this.add
-      .image(portraitX, cy, character.texture)
-      .setDisplaySize(portraitSize, portraitSize)
+      .image(tileX + tileSize / 2, cy, character.texture)
+      .setDisplaySize(tileSize - 10 * s, tileSize - 10 * s)
       .setDepth(3);
 
-    const textX = portraitX + portraitSize / 2 + 14 * s;
-    const textW = Math.max(60, cx + w / 2 - 46 * s - textX);
+    const badge = this.add
+      .image(
+        tileX + tileSize - 3 * s,
+        tileY + tileSize - 3 * s,
+        `icon-${character.icon}`
+      )
+      .setDisplaySize(14 * s, 14 * s)
+      .setTint(character.color)
+      .setDepth(4);
+
+    const textX = tileX + tileSize + 12 * s;
+    // Leave the right edge free for the lock icon and the "已选" tag.
+    const textW = Math.max(80, cx + w / 2 - 40 * s - textX);
+    const top = cy - h / 2;
 
     const name = this.add
-      .text(textX, cy - h * 0.28, character.name, {
+      .text(textX, top + Math.max(16 * s, h * 0.16), character.name, {
         fontFamily: FONT,
         fontSize: `${Math.round(16 * s)}px`,
         color: COLORS.ink,
@@ -140,24 +169,65 @@ export class CharacterScene extends Phaser.Scene {
       .setOrigin(0, 0.5)
       .setDepth(3);
 
-    const stats = this.add
-      .text(textX, cy + h * 0.04, this.statLine(character), {
+    const tagline = this.add
+      .text(name.x + name.width + 8 * s, name.y, character.tagline, {
         fontFamily: FONT,
-        fontSize: `${Math.round(11 * s)}px`,
+        fontSize: `${Math.round(10.5 * s)}px`,
+        color: hexOf(character.color),
+        fontStyle: 'bold'
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(3);
+
+    const stats = this.add
+      .text(textX, top + h * 0.4, this.statLine(character), {
+        fontFamily: FONT,
+        fontSize: `${Math.round(10.5 * s)}px`,
         color: COLORS.dim,
         wordWrap: { width: textW }
       })
       .setOrigin(0, 0.5)
       .setDepth(3);
 
+    // The exclusive skill, the reason to pick this character: a cyan tag with
+    // the name and rule in gold underneath it.
+    const skillY = top + h * 0.54;
+    const skillLabel = this.add
+      .text(textX, skillY, '专属', {
+        fontFamily: FONT,
+        fontSize: `${Math.round(10 * s)}px`,
+        color: COLORS.accentHex,
+        fontStyle: 'bold'
+      })
+      .setOrigin(0, 0)
+      .setDepth(3);
+
+    const skillText = this.add
+      .text(
+        textX + skillLabel.width + 6 * s,
+        skillY - 1 * s,
+        `${character.skill.name}：${character.skill.text}`,
+        {
+          fontFamily: FONT,
+          fontSize: `${Math.round(10.5 * s)}px`,
+          color: '#ffe27a',
+          fontStyle: 'bold',
+          wordWrap: { width: textW - skillLabel.width - 6 * s },
+          lineSpacing: Math.round(1 * s)
+        }
+      )
+      .setOrigin(0, 0)
+      .setDepth(3);
+    if (typeof skillText.setMaxLines === 'function') skillText.setMaxLines(2);
+
     const note = this.add
       .text(
         textX,
-        cy + h * 0.3,
+        top + h * 0.86,
         character.unlock ? character.unlock.text : character.desc,
         {
           fontFamily: FONT,
-          fontSize: `${Math.round(12 * s)}px`,
+          fontSize: `${Math.round(10.5 * s)}px`,
           color: COLORS.goldHex,
           wordWrap: { width: textW }
         }
@@ -172,7 +242,7 @@ export class CharacterScene extends Phaser.Scene {
       .setDepth(3);
 
     const chosen = this.add
-      .text(cx + w / 2 - 14 * s, cy, '已选', {
+      .text(cx + w / 2 - 14 * s, top + Math.max(16 * s, h * 0.16), '已选', {
         fontFamily: FONT,
         fontSize: `${Math.round(12 * s)}px`,
         color: COLORS.accentHex,
@@ -196,10 +266,24 @@ export class CharacterScene extends Phaser.Scene {
       );
       g.strokeRoundedRect(cx - w / 2, cy - h / 2, w, h, 14);
 
+      // The portrait tile, tinted by the character itself.
+      g.fillStyle(shade(character.color, selected ? 0.34 : unlocked ? 0.22 : 0.1), 1);
+      g.fillRoundedRect(tileX, tileY, tileSize, tileSize, 10 * s);
+      g.lineStyle(
+        1.5,
+        character.color,
+        selected ? 0.95 : unlocked ? 0.45 : 0.16
+      );
+      g.strokeRoundedRect(tileX, tileY, tileSize, tileSize, 10 * s);
+
       portrait.setTint(unlocked ? 0xffffff : 0x4a4a4a);
       portrait.setAlpha(unlocked ? 1 : 0.6);
+      badge.setAlpha(unlocked ? 1 : 0.35);
       name.setColor(unlocked ? COLORS.ink : COLORS.dim);
+      tagline.setColor(unlocked ? hexOf(character.color) : '#5c6a76');
       stats.setColor(unlocked ? COLORS.dim : '#5c6a76');
+      skillLabel.setColor(unlocked ? COLORS.accentHex : '#4f6a70');
+      skillText.setColor(unlocked ? '#ffe27a' : '#8a7a44');
       note.setColor(unlocked ? COLORS.dim : COLORS.goldHex);
       lockIcon.setVisible(!unlocked);
       chosen.setVisible(selected);
@@ -221,8 +305,8 @@ export class CharacterScene extends Phaser.Scene {
 
   statLine(character) {
     return (
-      `生命 ${character.hp} · 伤害 ${character.damage} · ` +
-      `射速 ${(1000 / character.fireInterval).toFixed(1)}/s · 移速 ${character.speed}`
+      `生命 ${character.hp} · 攻击 ${character.damage} · ` +
+      `攻速 ${(1000 / character.fireInterval).toFixed(1)} · 移速 ${character.speed}`
     );
   }
 
