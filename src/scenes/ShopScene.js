@@ -14,6 +14,12 @@ import { WEAPONS, WEAPON_SLOTS, weaponDef, weaponStats } from '../game/weapons.j
 import { nextRarity, rarityFor, weaponName } from '../game/rarities.js';
 import { ITEM_BY_KEY } from '../game/passives.js';
 
+// The shop's neon accents: cyan for structure, magenta for danger accents and a
+// hot yellow reserved for money.
+const NEON_CYAN = '#39e6cd';
+const NEON_MAGENTA = '#ff2fd0';
+const NEON_PRICE = '#ffe66d';
+
 export class ShopScene extends Phaser.Scene {
   constructor() {
     super('Shop');
@@ -122,7 +128,17 @@ export class ShopScene extends Phaser.Scene {
         fontStyle: 'bold'
       })
       .setOrigin(0.5)
-      .setDepth(2);
+      .setDepth(2)
+      .setShadow(0, 0, NEON_MAGENTA, 12, true, true);
+
+    // A cyan/magenta frame so the whole panel reads as a cyberspace terminal.
+    const frame = this.add.graphics().setDepth(2);
+    frame.lineStyle(1, 0x2bd3c4, 0.16);
+    frame.strokeRect(8, 8, W - 16, H - 16);
+    frame.lineStyle(2, 0xff2fd0, 0.18);
+    frame.lineBetween(8, 8, Math.min(W * 0.32, 150 * s), 8);
+    frame.lineStyle(2, 0x2bd3c4, 0.22);
+    frame.lineBetween(W - Math.min(W * 0.24, 110 * s), H - 8, W - 8, H - 8);
 
     this.add
       .text(
@@ -235,11 +251,12 @@ export class ShopScene extends Phaser.Scene {
         .text(W / 2 - cardW / 2 + 4 * s, y + labelH / 2, shelf.label, {
           fontFamily: FONT,
           fontSize: `${Math.round(11 * s)}px`,
-          color: COLORS.dim,
+          color: COLORS.accentHex,
           fontStyle: 'bold'
         })
         .setOrigin(0, 0.5)
-        .setDepth(2);
+        .setDepth(2)
+        .setShadow(0, 0, NEON_CYAN, 8, true, true);
       y += labelH;
 
       shelf.cards.forEach((entry, index) => {
@@ -898,11 +915,12 @@ export class ShopScene extends Phaser.Scene {
       .text(priceX, priceY, '', {
         fontFamily: FONT,
         fontSize: `${Math.round(12 * s)}px`,
-        color: hex,
+        color: NEON_PRICE,
         fontStyle: 'bold'
       })
       .setOrigin(1, 0.5)
       .setDepth(3);
+    priceText.setShadow(0, 0, '#ffe66d', 8, true, true);
 
     const soldText = this.add
       .text(priceX, priceY, '已购买', {
@@ -1009,57 +1027,78 @@ export class ShopScene extends Phaser.Scene {
       const affordable = this.coins() >= item.price;
       const locked = !!item.locked;
 
-      // Near-black glass at half opacity: the shelf behind it stays faintly
-      // visible, which is what keeps the cards from looking heavy.
+      // Neon glass: deep space grey at 70% so the shelf behind shows through,
+      // cut with a cyber chamfer at the top-right instead of soft corners.
+      const cut = Math.round(10 * s);
+      const cardPath = () => {
+        g.beginPath();
+        g.moveTo(left + cut * 0.5, top);
+        g.lineTo(right - cut, top);
+        g.lineTo(right, top + cut);
+        g.lineTo(right, bottom - cut * 0.4);
+        g.lineTo(right - cut * 0.4, bottom);
+        g.lineTo(left, bottom);
+        g.lineTo(left, top);
+        g.closePath();
+      };
+
+      const glow = item.sold ? 0.12 : locked ? 1 : 0.8;
+
       g.clear();
-      g.fillStyle(0x03060a, 0.5);
-      g.fillRoundedRect(left, top, w, h, 10);
+      cardPath();
+      g.fillStyle(0x0b1220, 0.7);
+      g.fillPath();
 
-      // A dark band behind the price, so the number is the brightest thing left
-      // in that corner.
-      g.fillStyle(0x03060a, 0.42);
-      g.fillRoundedRect(right - 62 * s, bottom - 18 * s, 56 * s, 16 * s, 6);
+      // A neon tube is drawn as a dim wide halo, a mid glow and a bright core.
+      cardPath();
+      g.lineStyle(8, color, glow * 0.13);
+      g.strokePath();
 
-      // A fine, dim border by default; gold and bright only once the card is
-      // pinned.
-      g.lineStyle(
-        1.5,
-        item.sold ? 0x39a05a : locked ? COLORS.gold : color,
-        item.sold ? 0.22 : locked ? 0.8 : 0.3
+      cardPath();
+      g.lineStyle(3.5, color, glow * 0.34);
+      g.strokePath();
+
+      cardPath();
+      g.lineStyle(1.5, color, glow);
+      g.strokePath();
+
+      // A spark along the chamfer, like a lit edge.
+      g.lineStyle(2, color, 0.9);
+      g.lineBetween(right - cut, top, right, top + cut);
+
+      // The price band keeps the number the brightest thing in the corner.
+      g.fillStyle(0x03060a, 0.45);
+      g.fillRect(right - 62 * s, bottom - 18 * s, 56 * s, 16 * s);
+      g.lineStyle(1, color, 0.35);
+      g.lineBetween(
+        right - 62 * s,
+        bottom - 18 * s,
+        right - 6 * s,
+        bottom - 18 * s
       );
-      g.strokeRoundedRect(left, top, w, h, 10);
 
-      // The glow behind the card: reserved for the higher tiers, and soft.
-      if (item.rank >= 2) {
+      // The outer halo behind the card, reserved for the higher tiers.
+      glowG.clear();
+      if (!item.sold && item.rank >= 2) {
         const spread = 2 + item.rank * 2;
-        glowG.clear();
-        if (!item.sold) {
-          glowG.fillStyle(color, 0.02 + item.rank * 0.012);
-          glowG.fillRoundedRect(
-            left - spread,
-            top - spread,
-            w + spread * 2,
-            h + spread * 2,
-            14
-          );
-          glowG.lineStyle(1 + item.rank * 0.5, color, 0.07 + item.rank * 0.03);
-          glowG.strokeRoundedRect(
-            left - spread,
-            top - spread,
-            w + spread * 2,
-            h + spread * 2,
-            14
-          );
-        }
-      } else {
-        glowG.clear();
+        glowG.fillStyle(color, 0.03 + item.rank * 0.018);
+        glowG.fillRoundedRect(
+          left - spread,
+          top - spread,
+          w + spread * 2,
+          h + spread * 2,
+          14
+        );
       }
 
       priceText
         .setVisible(!item.sold)
         .setText(String(item.price))
-        .setColor(affordable ? hex : COLORS.dangerHex);
-      coinIcon.setVisible(!item.sold).setAlpha(affordable ? 1 : 0.4);
+        .setColor(affordable ? NEON_PRICE : COLORS.dangerHex);
+      coinIcon
+        .setVisible(!item.sold)
+        .setTint(affordable ? 0xffe66d : 0xff5a72)
+        .setAlpha(affordable ? 1 : 0.4);
       // Keep the coin hugging whatever width the number ended up being.
       coinIcon.x = priceX - priceText.width - 7 * s;
 
