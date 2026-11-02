@@ -14,7 +14,8 @@ import {
   teapotInterval
 } from '../game/passives.js';
 import { Sfx, setMusicTrack, duckMusic } from '../game/audio.js';
-import { xpForLevel, weaponDropFactor, weaponDropKey } from '../game/loot.js';
+import { xpForLevel } from '../game/loot.js';
+import { rarityColor } from '../game/rarities.js';
 import { recordAchievement } from '../game/achievements.js';
 import {
   metaBonuses,
@@ -70,7 +71,6 @@ export class GameScene extends Phaser.Scene {
 
     this.dead = [];
     this.pickups = [];
-    this.weaponDrops = [];
     this.cooldowns = [];
     this.pending = [];
     this.shopItems = [];
@@ -620,7 +620,6 @@ export class GameScene extends Phaser.Scene {
     this.updateFiring(delta);
     this.updateEnemies(delta);
     this.updatePickups(dt);
-    this.updateWeaponDrops();
     this.updateBullets(delta);
     this.updateShots(delta);
     this.updateWave(dt);
@@ -1837,19 +1836,6 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // And sometimes a whole weapon crate — rarely, and only from the bracket the
-    // run has reached, so early guns stay a find and late ones stay earned.
-    const weaponChance =
-      (enemy.getData('weaponChance') || 0) * weaponDropFactor(this.state.wave);
-    if (
-      weaponChance > 0 &&
-      this.weaponDrops.length < 2 &&
-      Math.random() < weaponChance
-    ) {
-      const drop = weaponDropKey(this.state.wave);
-      if (drop) this.dropWeapon(enemy.x, enemy.y, drop);
-    }
-
     this.state.kills += 1;
     if (gems > 1) haptic('impact');
 
@@ -2467,7 +2453,11 @@ export class GameScene extends Phaser.Scene {
     const kept = (this.shopItems || []).filter(
       (item) => item.saved && !item.sold
     );
-    const fresh = rollShopItems(this.state.wave, this.items);
+    const fresh = rollShopItems(
+      this.state.wave,
+      this.items,
+      this.state.weapons
+    );
 
     const items = [];
     for (const item of kept) items.push(item);
@@ -2500,10 +2490,22 @@ export class GameScene extends Phaser.Scene {
       if ((this.items[item.key] || 0) >= (def.max || 1)) return false;
     }
 
+    // A weapon needs somewhere to go: a spare slot, or room to level up.
+    if (item.kind === 'weapon') {
+      const owned = this.state.weapons.find((slot) => slot.key === item.key);
+      if (owned) {
+        if ((owned.level || 1) >= 5) return false;
+      } else if (this.state.weapons.length >= WEAPON_SLOTS) {
+        return false;
+      }
+    }
+
     this.state.coins -= item.price;
     item.sold = true;
 
-    if (item.kind === 'item') {
+    if (item.kind === 'weapon') {
+      this.buyWeapon(item);
+    } else if (item.kind === 'item') {
       this.addItem(item.key);
     } else if (item.kind === 'upgrade') {
       const def = UPGRADE_BY_KEY[item.key];
@@ -2649,9 +2651,12 @@ export class GameScene extends Phaser.Scene {
 
       this.slotPositions.push({ x: cx, y: cy, r });
 
+      // A weapon keeps the colour of the rarity it was bought at.
+      const ringColor = slot.rarity ? rarityColor(slot.rarity) : def.color;
+
       g.fillStyle(0x0d1522, 0.9);
       g.fillCircle(cx, cy, r);
-      g.lineStyle(2, def.color, 0.7);
+      g.lineStyle(2, ringColor, 0.85);
       g.strokeCircle(cx, cy, r);
 
       this.slotIcons.push(
@@ -2667,7 +2672,7 @@ export class GameScene extends Phaser.Scene {
       const level = Math.min(slot.level || 1, 4);
       for (let p = 0; p < level; p++) {
         const px = cx - (level - 1) * 3 + p * 6;
-        g.fillStyle(def.color, 0.9);
+        g.fillStyle(ringColor, 0.9);
         g.fillCircle(px, cy + r + 2, 1.5);
       }
     });
@@ -2911,65 +2916,29 @@ export class GameScene extends Phaser.Scene {
     this.scene.resume();
   }
 
-  /// A weapon on the floor: the crate is tinted to the weapon and carries its
-  /// icon, so it reads without a floating name.
-  dropWeapon(x, y, key) {
-    const def = WEAPONS[key];
-    if (!def) return;
+  /// Equips the weapon bought from the wave shop: a fresh gun takes a free slot,
+  /// a duplicate levels up, and the rarity it was bought at sticks to it.
+  buyWeapon(item) {
+    const def = WEAPONS[item.key];
+    if (!def) return false;
 
-    const field = this.layout.field;
-    const cx = Phaser.Math.Clamp(x, 44, field.width - 44);
-    const cy = Phaser.Math.Clamp(y, 44, field.height - 44);
+    const owned = this.state.weapons.find((slot) => slot.key === item.key);
 
-    const crate = this.add
-      .image(cx, cy, 'crate')
-      .setDepth(2)
-      .setTint(def.color);
-    const icon = this.add
-      .text(cx, cy, def.emoji || '🔫', {
-        fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: `${Math.round(20 * this.layout.uiScale)}px`
-      })
-      .setOrigin(0.5)
-      .setDepth(3);
-
-    this.tweens.add({
-      targets: [crate, icon],
-      y: cy - 6,
-      duration: 800,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.inOut'
-    });
-
-    this.weaponDrops.push({ key, crate, icon });
-  }
-
-  updateWeaponDrops() {
-    for (let i = this.weaponDrops.length - 1; i >= 0; i--) {
-      const drop = this.weaponDrops[i];
-      if (!drop.crate.active) {
-        this.weaponDrops.splice(i, 1);
-        continue;
-      }
-
-      const dist = Phaser.Math.Distance.Between(
-        this.player.x,
-        this.player.y,
-        drop.crate.x,
-        drop.crate.y
-      );
-      if (dist > 46) continue;
-
-      this.acquireWeapon(drop.key);
-      haptic('impact');
-
-      this.tweens.killTweensOf(drop.crate);
-      this.tweens.killTweensOf(drop.icon);
-      drop.crate.destroy();
-      if (drop.icon) drop.icon.destroy();
-      this.weaponDrops.splice(i, 1);
+    if (owned) {
+      owned.level = Math.min(5, (owned.level || 1) + 1);
+      if (item.rarity) owned.rarity = item.rarity;
+    } else {
+      if (this.state.weapons.length >= WEAPON_SLOTS) return false;
+      this.state.weapons.push({
+        key: item.key,
+        level: 1,
+        rarity: item.rarity
+      });
     }
+
+    this.cooldowns = [];
+    this.drawWeaponSlots();
+    return true;
   }
 
   notify(text, x, y) {

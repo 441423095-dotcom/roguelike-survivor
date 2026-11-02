@@ -9,6 +9,8 @@
 // weapon scales from, so a weapon's numbers are always derived here rather than
 // stored twice.
 
+import { rarityBonus } from './rarities.js';
+
 export const WEAPON_SLOTS = 3;
 
 // The figures a fresh run starts with. Every upgrade multiplies these, and the
@@ -257,6 +259,7 @@ export function weaponStats(slot, state) {
 
   const styleBonus = (state.styleBonus && state.styleBonus[def.style]) || 1;
   const synergy = 1 + (state.weaponSynergy || 0) * Math.max(0, carries(state) - 1);
+  const rarity = rarityBonus(slot.rarity);
 
   return {
     def,
@@ -265,18 +268,22 @@ export function weaponStats(slot, state) {
       levelDamage *
       (state.damage / BASE_STATS.damage) *
       styleBonus *
-      synergy,
+      synergy *
+      rarity.damage,
     interval: Math.max(
       80,
       def.interval * levelRate * (state.fireInterval / BASE_STATS.fireInterval)
     ),
-    count: def.count + Math.max(0, state.projectiles - BASE_STATS.projectiles),
+    count:
+      def.count +
+      Math.max(0, state.projectiles - BASE_STATS.projectiles) +
+      rarity.projectiles,
     spread: def.spread,
     speed: def.speed * (state.bulletSpeed / BASE_STATS.bulletSpeed),
     range: def.range * (state.range / BASE_STATS.range),
-    pierce: (def.pierce || 0) + (level >= 3 ? 1 : 0),
+    pierce: (def.pierce || 0) + (level >= 3 ? 1 : 0) + rarity.pierce,
     slow: def.slow || 0,
-    splash: (def.splash || 0) + (state.splashBonus || 0)
+    splash: (def.splash || 0) + (state.splashBonus || 0) + rarity.splash
   };
 }
 

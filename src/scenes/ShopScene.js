@@ -193,6 +193,28 @@ export class ShopScene extends Phaser.Scene {
 
     const g = this.add.graphics().setDepth(2);
 
+    // Rarer weapon cards glow behind the border, so a gold pull reads as one.
+    if (item.kind === 'weapon' && item.rank >= 2) {
+      const spread = 3 + item.rank * 2;
+      const glow = this.add.graphics().setDepth(1);
+      glow.fillStyle(color, 0.08 + item.rank * 0.04);
+      glow.fillRoundedRect(
+        cx - w / 2 - spread,
+        cy - h / 2 - spread,
+        w + spread * 2,
+        h + spread * 2,
+        16
+      );
+      glow.lineStyle(3, color, 0.2 + item.rank * 0.07);
+      glow.strokeRoundedRect(
+        cx - w / 2 - spread,
+        cy - h / 2 - spread,
+        w + spread * 2,
+        h + spread * 2,
+        16
+      );
+    }
+
     const priceX = cx + w / 2 - 16 * s;
     const priceY = cy + h * 0.22;
     const lockX = cx + w / 2 - 27 * s;
@@ -265,6 +287,11 @@ export class ShopScene extends Phaser.Scene {
       .setDepth(3);
 
     const paintTag = () => {
+      if (item.kind === 'weapon') {
+        tagText.setText(`${item.rarityName} · Lv${item.level}`);
+        return;
+      }
+
       const have = this.owned(item.key);
       const kind = item.active ? '主动' : '被动';
       tagText.setText(have > 0 ? `${kind} ×${have}` : `${kind}道具`);
