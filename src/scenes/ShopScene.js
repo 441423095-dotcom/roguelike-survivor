@@ -194,8 +194,8 @@ export class ShopScene extends Phaser.Scene {
     const areaBottom = H - (this.replaceItem ? 212 : 182) * s;
 
     // Trinkets on the top shelf, weapons under them, both in a two-column grid:
-    // nine cards fit a phone without a scroll, and each price sits in the
-    // bottom-right corner of its own cell.
+    // eight cards leave each one tall enough to show its whole intro, and every
+    // price sits at the right of its own cell.
     const entries = items.map((item, index) => ({ item, index }));
     const trinkets = entries.filter((entry) => entry.item.kind !== 'weapon');
     const guns = entries.filter((entry) => entry.item.kind === 'weapon');

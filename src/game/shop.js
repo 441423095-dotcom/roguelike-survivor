@@ -15,8 +15,10 @@ import {
 } from './rarities.js';
 
 export const SHOP_REFRESH_COST = 5;
-export const ITEM_SLOTS = 5;
-export const WEAPON_OFFERS = 5;
+// Four of each on the shelf: fewer cards means taller ones, so every card has
+// room to show its whole intro.
+export const ITEM_SLOTS = 4;
+export const WEAPON_OFFERS = 4;
 export const SHOP_SLOTS = ITEM_SLOTS + WEAPON_OFFERS;
 
 function roundPrice(value) {
