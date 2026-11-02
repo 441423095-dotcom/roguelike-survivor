@@ -91,7 +91,7 @@ export const ACHIEVEMENTS = [
   }
 ];
 
-// Coins each achievement pays out when it is claimed from the archive.
+// Star dust each achievement pays out when it is claimed from the archive.
 const REWARDS = {
   wave5: 20,
   wave10: 30,
@@ -126,7 +126,7 @@ function blankStats() {
 }
 
 function blank() {
-  return { stats: blankStats(), unlocked: [], claimed: [], pendingCoins: 0 };
+  return { stats: blankStats(), unlocked: [], claimed: [] };
 }
 
 export function loadAchievements() {
@@ -147,8 +147,7 @@ export function loadAchievements() {
     return {
       stats,
       unlocked: Array.isArray(data.unlocked) ? data.unlocked : [],
-      claimed: Array.isArray(data.claimed) ? data.claimed : [],
-      pendingCoins: Math.max(0, Math.floor(Number(data.pendingCoins) || 0))
+      claimed: Array.isArray(data.claimed) ? data.claimed : []
     };
   } catch (error) {
     return blank();
@@ -239,8 +238,8 @@ export function achievementState() {
   };
 }
 
-/// Claims one earned achievement's coins, banking them for the next run.
-/// Returns the amount paid, or 0 when there is nothing to claim.
+/// Marks one earned achievement as claimed and returns its star dust value,
+/// which the archive hands to the meta layer.
 export function claimReward(key) {
   const data = loadAchievements();
   if (data.unlocked.indexOf(key) === -1) return 0;
@@ -250,21 +249,7 @@ export function claimReward(key) {
   if (!def) return 0;
 
   data.claimed.push(key);
-  data.pendingCoins += def.reward;
   save(data);
 
   return def.reward;
-}
-
-/// Hands the banked coins to a fresh run and empties the bank.
-export function takePendingCoins() {
-  const data = loadAchievements();
-  const amount = Math.max(0, Math.floor(data.pendingCoins || 0));
-
-  if (amount > 0) {
-    data.pendingCoins = 0;
-    save(data);
-  }
-
-  return amount;
 }

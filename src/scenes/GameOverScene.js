@@ -102,11 +102,16 @@ export class GameOverScene extends Phaser.Scene {
         !!this.records.wave
       ],
       ['击杀数量', `${this.summary.kills || 0}`, !!this.records.kills],
-      ['存活时间', formatDuration(this.summary.time), !!this.records.time]
+      ['存活时间', formatDuration(this.summary.time), !!this.records.time],
+      [
+        '星尘收入',
+        `+${this.summary.shards || 0}（共 ${this.summary.shardTotal || 0}）`,
+        false
+      ]
     ];
 
     rows.forEach((row, index) => {
-      const y = cy - panelH / 2 + (100 + index * 26) * s;
+      const y = cy - panelH / 2 + (96 + index * 22) * s;
       this.add
         .text(cx - panelW / 2 + 26 * s, y, row[0], {
           fontFamily: FONT,
@@ -130,7 +135,7 @@ export class GameOverScene extends Phaser.Scene {
       this.add
         .text(
           cx,
-          cy - panelH / 2 + 180 * s,
+          cy - panelH / 2 + 190 * s,
           `历史最佳：第 ${this.best.bestWave} 波 · ${this.best.bestKills} 击杀 · ${formatDuration(
             this.best.bestTime
           )}`,
@@ -150,7 +155,7 @@ export class GameOverScene extends Phaser.Scene {
       this.add
         .text(
           cx,
-          cy - panelH / 2 + 204 * s,
+          cy - panelH / 2 + 212 * s,
           `进入无尽模式后撑过 ${wave - ENDLESS_FROM} 波`,
           {
             fontFamily: FONT,

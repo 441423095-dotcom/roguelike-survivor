@@ -5,6 +5,7 @@ import { COLORS, FONT } from '../ui/style.js';
 import { makeButton } from '../ui/widgets.js';
 import { haptic } from '../haptics.js';
 import { loadProgress, formatDuration, clearProgress } from '../game/progress.js';
+import { loadMeta } from '../game/meta.js';
 import { initAudio, startMusic } from '../game/audio.js';
 import { sharpenText } from '../ui/text.js';
 
@@ -110,6 +111,20 @@ export class TitleScene extends Phaser.Scene {
 
     this.buildRecords(W, H, s);
 
+    // Star dust is spent here, never inside a run.
+    makeButton(this, {
+      x: W / 2,
+      y: H * 0.72,
+      width: Math.min(W - 80, 240 * s),
+      height: Math.round(38 * s),
+      icon: 'sparkles',
+      label: `星尘商店 · ${loadMeta().shards}`,
+      fontSize: Math.round(13 * s),
+      accent: 0xffd166,
+      depth: 3,
+      onPress: () => this.openMetaShop()
+    });
+
     // The archive entry, mirroring the record-clearing link on the right.
     makeButton(this, {
       x: 18 * s + 46 * s,
@@ -171,6 +186,11 @@ export class TitleScene extends Phaser.Scene {
   openBestiary() {
     haptic('tick');
     this.scene.start('Bestiary');
+  }
+
+  openMetaShop() {
+    haptic('tick');
+    this.scene.start('MetaShop');
   }
 
   /// The archive strip under the start button, plus the (deliberately tucked

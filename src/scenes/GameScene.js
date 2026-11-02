@@ -15,7 +15,13 @@ import {
 } from '../game/passives.js';
 import { Sfx, setMusicTrack, duckMusic } from '../game/audio.js';
 import { xpForLevel, weaponDropFactor, weaponDropKey } from '../game/loot.js';
-import { recordAchievement, takePendingCoins } from '../game/achievements.js';
+import { recordAchievement } from '../game/achievements.js';
+import {
+  metaBonuses,
+  activeSkinTint,
+  shardsForRun,
+  addShards
+} from '../game/meta.js';
 import { markDiscovered } from '../game/bestiary.js';
 import {
   WEAPONS,
@@ -59,6 +65,9 @@ export class GameScene extends Phaser.Scene {
 
     this.difficulty = difficultyFor(saved.difficulty);
 
+    // Permanent perks bought with star dust apply from the first second.
+    this.meta = metaBonuses();
+
     this.dead = [];
     this.pickups = [];
     this.weaponDrops = [];
@@ -91,10 +100,10 @@ export class GameScene extends Phaser.Scene {
     this.dashDir = new Phaser.Math.Vector2(1, 0);
 
     this.state = {
-      hp: this.character.hp,
-      maxHp: this.character.hp,
-      speed: this.character.speed,
-      damage: this.character.damage,
+      hp: this.character.hp + this.meta.health,
+      maxHp: this.character.hp + this.meta.health,
+      speed: this.character.speed * this.meta.speed,
+      damage: this.character.damage * this.meta.damage,
       fireInterval: this.character.fireInterval,
       projectiles: 1,
       weapons: [
@@ -118,9 +127,7 @@ export class GameScene extends Phaser.Scene {
       wave: 1,
       waveLeft: 0,
       kills: 0,
-      // Coins claimed from the achievement archive are banked and handed to the
-      // next run as its starting purse.
-      coins: takePendingCoins(),
+      coins: 0,
       // 生锈的硬币 locks the purse and doubles every drop; both stay neutral
       // until the trinket is bought.
       coinCap: Number.POSITIVE_INFINITY,
@@ -251,6 +258,10 @@ export class GameScene extends Phaser.Scene {
     // The hero texture is 48x48; a 30px square body sits centred inside it.
     this.player.body.setSize(30, 30, true);
     this.player.setCollideWorldBounds(true);
+
+    // A bought tint is worn for the whole run.
+    this.skinTint = activeSkinTint();
+    if (this.skinTint) this.player.setTint(this.skinTint);
   }
 
   // ------------------------------------------------------------- entities
@@ -1979,7 +1990,10 @@ export class GameScene extends Phaser.Scene {
     this.player.setTint(0xff8899);
     const player = this.player;
     this.time.delayedCall(140, () => {
-      if (player.active) player.clearTint();
+      if (!player.active) return;
+
+      player.clearTint();
+      if (this.skinTint) player.setTint(this.skinTint);
     });
 
     this.spawnBurst(this.player.x, this.player.y, COLORS.danger, 6);
@@ -3049,6 +3063,11 @@ export class GameScene extends Phaser.Scene {
       })
     );
 
+    // Star dust is the meta currency: earned at the end of a run, spent outside
+    // it. In-run coins never leave the run.
+    const shardReward = shardsForRun(this.state.wave);
+    const shardTotal = addShards(shardReward);
+
     if (this.spawnTimer) {
       this.spawnTimer.remove();
       this.spawnTimer = null;
@@ -3087,7 +3106,9 @@ export class GameScene extends Phaser.Scene {
       records: result
         ? result.records
         : { wave: false, kills: false, time: false },
-      best: result ? result.best : null
+      best: result ? result.best : null,
+      shards: shardReward,
+      shardTotal
     });
   }
 

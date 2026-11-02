@@ -7,6 +7,7 @@ import { makeButton } from '../ui/widgets.js';
 import { TEXT_RESOLUTION, sharpenText } from '../ui/text.js';
 import { haptic } from '../haptics.js';
 import { achievementState, claimReward } from '../game/achievements.js';
+import { addShards } from '../game/meta.js';
 import { Sfx } from '../game/audio.js';
 
 export class AchievementScene extends Phaser.Scene {
@@ -213,8 +214,9 @@ export class AchievementScene extends Phaser.Scene {
       parts.push(check, claimed);
     } else {
       const coin = this.add
-        .image(half - 74 * s, -8 * s, 'coin')
-        .setDisplaySize(14 * s, 14 * s);
+        .image(half - 74 * s, -8 * s, 'icon-sparkles')
+        .setDisplaySize(13 * s, 13 * s)
+        .setTint(0xffd166);
       const amount = this.add
         .text(half - 62 * s, -8 * s, `+${item.reward}`, {
           fontFamily: FONT,
@@ -287,11 +289,12 @@ export class AchievementScene extends Phaser.Scene {
     this.dragging = false;
   }
 
-  /// Pays out one earned achievement into the bank the next run starts with.
+  /// Pays one earned achievement into the star dust purse.
   claim(item) {
     const amount = claimReward(item.key);
     if (amount <= 0) return;
 
+    addShards(amount);
     haptic('impact');
     Sfx.coin();
 
@@ -305,7 +308,7 @@ export class AchievementScene extends Phaser.Scene {
     const s = Math.min(1.6, Math.max(0.9, W / 420));
 
     const label = this.add
-      .text(W / 2, H * 0.16, `领取 ${amount} 金币`, {
+      .text(W / 2, H * 0.16, `领取 ${amount} 星尘`, {
         fontFamily: FONT,
         fontSize: `${Math.round(16 * s)}px`,
         color: COLORS.goldHex,

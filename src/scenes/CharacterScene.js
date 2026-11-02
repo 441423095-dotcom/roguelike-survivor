@@ -9,6 +9,7 @@ import { sharpenText } from '../ui/text.js';
 import { haptic } from '../haptics.js';
 import { CHARACTERS, getCharacter } from '../game/characters.js';
 import { loadProgress, isUnlocked, selectCharacter } from '../game/progress.js';
+import { metaCharacterUnlocked } from '../game/meta.js';
 
 export class CharacterScene extends Phaser.Scene {
   constructor() {
@@ -18,7 +19,9 @@ export class CharacterScene extends Phaser.Scene {
   create() {
     const progress = loadProgress();
     const saved = getCharacter(progress.character);
-    if (!isUnlocked(progress, saved)) progress.character = 'spud';
+    if (!isUnlocked(progress, saved) && !metaCharacterUnlocked(saved.key)) {
+      progress.character = 'spud';
+    }
 
     this.progress = progress;
     this.refs = [];
@@ -177,7 +180,7 @@ export class CharacterScene extends Phaser.Scene {
       .setDepth(3);
 
     const paint = () => {
-      const unlocked = isUnlocked(this.progress, character);
+      const unlocked = this.characterUnlocked(character);
       const selected =
         this.progress.character === character.key && unlocked;
 
@@ -208,6 +211,12 @@ export class CharacterScene extends Phaser.Scene {
     this.refs.push({ paint });
   }
 
+  /// A character counts as unlocked if the run condition was met or star dust
+  /// bought them in the meta shop.
+  characterUnlocked(character) {
+    return isUnlocked(this.progress, character) || metaCharacterUnlocked(character.key);
+  }
+
   statLine(character) {
     return (
       `生命 ${character.hp} · 伤害 ${character.damage} · ` +
@@ -218,7 +227,7 @@ export class CharacterScene extends Phaser.Scene {
   pick(key) {
     const character = getCharacter(key);
 
-    if (!isUnlocked(this.progress, character)) {
+    if (!this.characterUnlocked(character)) {
       haptic('tick');
       return;
     }

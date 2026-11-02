@@ -7,6 +7,7 @@ import { CharacterScene } from './scenes/CharacterScene.js';
 import { DifficultyScene } from './scenes/DifficultyScene.js';
 import { AchievementScene } from './scenes/AchievementScene.js';
 import { BestiaryScene } from './scenes/BestiaryScene.js';
+import { MetaShopScene } from './scenes/MetaShopScene.js';
 import { GameScene } from './scenes/GameScene.js';
 import { HudScene } from './scenes/HudScene.js';
 import { ChoiceScene } from './scenes/ChoiceScene.js';
@@ -56,6 +57,7 @@ window.game = new Phaser.Game({
     DifficultyScene,
     AchievementScene,
     BestiaryScene,
+    MetaShopScene,
     GameScene,
     HudScene,
     ShopScene,
