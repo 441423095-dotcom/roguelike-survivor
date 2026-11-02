@@ -49,9 +49,7 @@ import {
 } from '../game/enemies.js';
 import { haptic } from '../haptics.js';
 
-const DASH_COOLDOWN = 2400;
-const DASH_TIME = 170;
-const BLINK_COOLDOWN = 5000;
+const BLINK_COOLDOWN = 4000;
 
 export class GameScene extends Phaser.Scene {
   constructor() {
@@ -333,25 +331,24 @@ export class GameScene extends Phaser.Scene {
   // ------------------------------------------------------------- controls
 
   buildControls() {
-    // Combat HUD is deliberately bare: a dash and a blink in the bottom-right
-    // corner and no side panels, so the field is clear. Weapons and items are
-    // shown in the shop screen.
+    // One control and one only: the flash button in the bottom-right corner.
+    // It sits half-transparent so it never covers the fight, and comes solid
+    // while a thumb is on it.
     this.dashGfx = this.add.graphics().setDepth(20);
+    // The recharge ring lives on its own layer, so it stays readable while the
+    // disc underneath is half-transparent.
+    this.dashRing = this.add.graphics().setDepth(20);
     this.dashIcon = this.add
-      .image(0, 0, 'icon-chevrons-right')
-      .setDepth(20)
-      .setTint(0xffd9a0);
-
-    this.skillGfx = this.add.graphics().setDepth(20);
-    this.skillIcon = this.add
       .image(0, 0, 'icon-zap')
       .setDepth(20)
       .setTint(0xa8f0ff);
 
+    this.buttonPressed = false;
+    this.buttonPointer = null;
+
     this.slotPositions = [];
 
-    this.drawDash();
-    this.drawSkill();
+    this.drawFlashButton();
 
     this.input.on('pointerdown', this.onPointerDown, this);
     this.input.on('pointermove', this.onPointerMove, this);
@@ -365,75 +362,48 @@ export class GameScene extends Phaser.Scene {
     // Intentionally draws nothing.
   }
 
-  drawDash() {
-    const dash = this.layout.dash;
-    const r = dash.radius;
-    const ratio = this.dashCoolRatio();
+  /// The flash button: one lightning bolt in the corner. Half-transparent at
+  /// rest so it never covers the fight, solid and a touch smaller while a thumb
+  /// holds it, with the recharge ring drawn around it.
+  drawFlashButton() {
+    const button = this.layout.dash;
+    if (!button || !this.dashGfx) return;
 
-    const g = this.dashGfx;
-    g.clear();
-
-    g.fillStyle(0x121a26, 0.95);
-    g.fillCircle(dash.x, dash.y, r);
-    g.lineStyle(2, 0xffb038, ratio > 0 ? 0.28 : 0.75);
-    g.strokeCircle(dash.x, dash.y, r);
-
-    if (ratio > 0) {
-      g.lineStyle(4, 0xffb038, 0.55);
-      g.beginPath();
-      g.arc(
-        dash.x,
-        dash.y,
-        r - 4,
-        -Math.PI / 2,
-        -Math.PI / 2 + Math.PI * 2 * ratio,
-        false
-      );
-      g.strokePath();
-    }
-
-    this.dashIcon.setPosition(dash.x, dash.y);
-    this.dashIcon.setDisplaySize(r * 1.05, r * 1.05);
-    this.dashIcon.setAlpha(ratio > 0 ? 0.35 : 1);
-  }
-
-  dashCoolRatio() {
-    return Math.max(0, (this.dashReadyAt - this.time.now) / DASH_COOLDOWN);
-  }
-
-  /// The blink, drawn next to the dash in the same materials so the pair reads
-  /// as part of the arena rather than a browser widget.
-  drawSkill() {
-    const skill = this.layout.skill;
-    if (!skill || !this.skillGfx) return;
-
-    const r = skill.radius;
     const ratio = this.blinkCoolRatio();
-    const g = this.skillGfx;
+    const pressed = !!this.buttonPressed;
+    const alpha = pressed ? 1 : 0.4;
+    const r = button.radius * (pressed ? 0.92 : 1);
+    const g = this.dashGfx;
 
     g.clear();
+    g.setAlpha(alpha);
     g.fillStyle(0x121a26, 0.95);
-    g.fillCircle(skill.x, skill.y, r);
-    g.lineStyle(2, 0xa8f0ff, ratio > 0 ? 0.28 : 0.85);
-    g.strokeCircle(skill.x, skill.y, r);
+    g.fillCircle(button.x, button.y, r);
+    g.lineStyle(2, 0xa8f0ff, ratio > 0 ? 0.3 : 0.85);
+    g.strokeCircle(button.x, button.y, r);
 
-    if (ratio > 0) {
-      g.lineStyle(4, 0xa8f0ff, 0.5);
-      g.beginPath();
-      g.arc(
-        skill.x,
-        skill.y,
-        r - 4,
-        -Math.PI / 2,
-        -Math.PI / 2 + Math.PI * 2 * ratio,
-        false
-      );
-      g.strokePath();
+    const ring = this.dashRing;
+    if (ring) {
+      ring.clear();
+      if (ratio > 0) {
+        ring.setAlpha(pressed ? 1 : 0.8);
+        ring.lineStyle(4, 0xa8f0ff, 0.75);
+        ring.beginPath();
+        ring.arc(
+          button.x,
+          button.y,
+          r - 4,
+          -Math.PI / 2,
+          -Math.PI / 2 + Math.PI * 2 * ratio,
+          false
+        );
+        ring.strokePath();
+      }
     }
 
-    this.skillIcon.setPosition(skill.x, skill.y);
-    this.skillIcon.setDisplaySize(r * 1.05, r * 1.05);
-    this.skillIcon.setAlpha(ratio > 0 ? 0.35 : 1);
+    this.dashIcon.setPosition(button.x, button.y);
+    this.dashIcon.setDisplaySize(r * 1.05, r * 1.05);
+    this.dashIcon.setAlpha(alpha * (ratio > 0 ? 0.45 : 1));
   }
 
   blinkCoolRatio() {
@@ -444,21 +414,17 @@ export class GameScene extends Phaser.Scene {
     if (!this.running || this.pausedByUser || this.shopOpen || this.choiceOpen)
       return;
 
-    const dash = this.layout.dash;
+    const button = this.layout.dash;
     if (
-      Phaser.Math.Distance.Between(pointer.x, pointer.y, dash.x, dash.y) <
-      dash.radius * 1.25
+      button &&
+      Phaser.Math.Distance.Between(pointer.x, pointer.y, button.x, button.y) <
+        button.radius * 1.2
     ) {
-      this.tryDash();
-      return;
-    }
-
-    const skill = this.layout.skill;
-    if (
-      skill &&
-      Phaser.Math.Distance.Between(pointer.x, pointer.y, skill.x, skill.y) <
-        skill.radius * 1.25
-    ) {
+      // Press feedback first, then the skill: a tap that finds the button on
+      // cooldown still answers the thumb.
+      this.buttonPointer = pointer;
+      this.buttonPressed = true;
+      this.drawFlashButton();
       this.tryBlink();
       return;
     }
@@ -477,6 +443,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   onPointerUp(pointer) {
+    if (pointer === this.buttonPointer) {
+      this.buttonPointer = null;
+      this.buttonPressed = false;
+      this.drawFlashButton();
+    }
+
     if (pointer === this.joyPointer) this.releaseJoystick();
   }
 
@@ -504,36 +476,6 @@ export class GameScene extends Phaser.Scene {
     this.drawJoystick();
   }
 
-  tryDash() {
-    if (this.time.now < this.dashReadyAt) return;
-
-    this.dashDir.copy(this.joyDir.lengthSq() > 0.01 ? this.joyDir : this.lastDir);
-    this.dashUntil = this.time.now + DASH_TIME;
-    this.dashReadyAt = this.time.now + DASH_COOLDOWN;
-
-    this.trail();
-    haptic('dash');
-    Sfx.dash();
-  }
-
-  trail() {
-    const ghost = this.add
-      .image(this.player.x, this.player.y, this.character.texture)
-      .setDepth(4)
-      .setAlpha(0.5)
-      .setTint(0x39e6cd);
-    this.tweens.add({
-      targets: ghost,
-      alpha: 0,
-      scale: 0.7,
-      duration: 260,
-      onComplete: () => ghost.destroy()
-    });
-  }
-
-  /// A short blink in the direction you are steering, with a brief moment of
-  /// invulnerability. It recharges on its own clock, shown as a ring around the
-  /// button.
   tryBlink() {
     if (!this.running || this.time.now < this.blinkReadyAt) return;
 
@@ -585,7 +527,7 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => streak.destroy()
     });
 
-    const trailSteps = 5;
+    const trailSteps = 6;
     for (let i = 1; i <= trailSteps; i++) {
       const t = i / (trailSteps + 1);
       const after = this.add
@@ -694,14 +636,16 @@ export class GameScene extends Phaser.Scene {
     this.topBarItems.push(this.hpText);
 
     // The purse sits at the right of the second row, where it is always in
-    // sight: what a wave pays is only useful if it is seen arriving. The line
-    // reads 34/50 once 生锈的硬币 locks the cap.
-    const coinW = Math.round(56 * s);
+    // sight: what a wave pays is only useful if it is seen arriving. The icon
+    // rides right up against the number so the pair reads as one figure.
     const coinSize = Math.max(10, Math.round(13 * s));
-    const xpW = Math.max(24, barW - coinW - 10);
+    const xpW = Math.max(24, barW - Math.round(56 * s) - 10);
+
+    this.coinRight = barX + barW;
+    this.coinGap = Math.round(5 * s);
 
     this.coinIcon = this.add
-      .image(barX + barW - coinW, xpY, 'coin')
+      .image(barX + barW, xpY, 'coin')
       .setDisplaySize(coinSize, coinSize)
       .setDepth(-5);
     this.coinText = this.add
@@ -804,6 +748,12 @@ export class GameScene extends Phaser.Scene {
           ? `${Math.min(coins, s.coinCap)}/${s.coinCap}`
           : String(coins)
       );
+
+      // Keep the coin hugging the left of the number, whatever its width.
+      if (this.coinIcon) {
+        const half = this.coinIcon.displayWidth / 2;
+        this.coinIcon.x = this.coinRight - this.coinText.width - this.coinGap - half;
+      }
     }
     this.waveText.setText(
       isEndlessWave(s.wave) ? `无尽波 ${s.wave}` : `第 ${s.wave} 波`
@@ -854,8 +804,7 @@ export class GameScene extends Phaser.Scene {
     this.updateBoomerangs(delta);
     this.updateBlackholes(delta);
 
-    this.drawDash();
-    this.drawSkill();
+    this.drawFlashButton();
     this.updateTopBar();
 
     this.shadow.setPosition(this.player.x, this.player.y + 15);
@@ -4183,8 +4132,7 @@ export class GameScene extends Phaser.Scene {
       field.height - 18
     );
 
-    this.drawDash();
-    this.drawSkill();
+    this.drawFlashButton();
     this.buildTopBar();
   }
 
