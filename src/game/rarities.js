@@ -79,6 +79,11 @@ const WEAPON_BASE_PRICE = {
   frost: 25,
   venom: 28,
   disc: 28,
+  pan: 26,
+  knife: 24,
+  cactus: 28,
+  staff: 32,
+  mushroom: 28,
   laser: 30,
   sniper: 32,
   rocket: 32

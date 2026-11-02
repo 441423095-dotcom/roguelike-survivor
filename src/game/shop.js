@@ -88,7 +88,7 @@ function rollWeapon(wave, loadout) {
     rarityName: rarity.name,
     rank: rarity.rank,
     name: weaponName(def, rarity.key),
-    desc: rarityDesc(rarity),
+    desc: def.note ? `${rarityDesc(rarity)} · ${def.note}` : rarityDesc(rarity),
     emoji: def.emoji,
     color: rarity.color,
     hex: rarity.hex,

@@ -167,6 +167,10 @@ export class GameScene extends Phaser.Scene {
     this.mines = [];
     this.turrets = [];
     this.companions = [];
+    this.poisonPools = [];
+    this.cactuses = [];
+    this.boomerangs = [];
+    this.blackholes = [];
 
     // The starting numbers, so runaway stacking can be clamped against them.
     this.baseStats = {
@@ -750,6 +754,10 @@ export class GameScene extends Phaser.Scene {
     this.updateMines(dt);
     this.updateTurrets(delta);
     this.updateCompanions(delta);
+    this.updatePoisonPools(delta);
+    this.updateCacti(delta);
+    this.updateBoomerangs(delta);
+    this.updateBlackholes(delta);
 
     this.drawDash();
     this.updateTopBar();
@@ -783,13 +791,25 @@ export class GameScene extends Phaser.Scene {
       this.cooldowns[i] = (this.cooldowns[i] || 0) - delta;
       if (this.cooldowns[i] > 0) continue;
 
-      const target = this.nearestEnemy(stats.range);
-      if (!target) {
+      const behaviour = stats.behaviour || 'gun';
+      const needsTarget = behaviour !== 'puddle' && behaviour !== 'cactus';
+
+      const target = needsTarget ? this.nearestEnemy(stats.range) : null;
+      if (needsTarget && !target) {
         this.cooldowns[i] = 90;
         continue;
       }
 
-      this.fireWeapon(stats, target);
+      if (behaviour === 'swing') this.swingWeapon(stats, target);
+      else if (behaviour === 'smite') this.smiteWeapon(stats);
+      else if (behaviour === 'puddle') this.dropPoisonPool(stats);
+      else if (behaviour === 'cactus') this.placeCactusWeapon(stats);
+      else if (behaviour === 'boomerang') this.throwBoomerang(stats, target);
+      else this.fireWeapon(stats, target);
+
+      // 狂躁症药丸: every attack costs a sliver of health.
+      if (this.items.mania) this.drainHp(1);
+
       this.cooldowns[i] = stats.interval;
     }
   }
@@ -874,6 +894,18 @@ export class GameScene extends Phaser.Scene {
 
     for (const enemy of this.enemies.getChildren()) {
       if (!enemy.active || !enemy.body) continue;
+
+      // A pan hit or a cactus throw lets the enemy fly for a moment before its
+      // own chase resumes.
+      const knockUntil = enemy.getData('knockUntil') || 0;
+      if (this.time.now < knockUntil) {
+        const kx = enemy.getData('knockX') || 0;
+        const ky = enemy.getData('knockY') || 0;
+        enemy.body.velocity.set(kx * 460, ky * 460);
+        const auraK = enemy.getData('aura');
+        if (auraK) auraK.setPosition(enemy.x, enemy.y);
+        continue;
+      }
 
       const angle = Math.atan2(py - enemy.y, px - enemy.x);
       const dist = Math.hypot(px - enemy.x, py - enemy.y);
@@ -1240,6 +1272,437 @@ export class GameScene extends Phaser.Scene {
     else if (key === 'mine') this.dropMine();
     else if (key === 'totem') this.healNow(12 + 4 * (stacks - 1));
     else if (key === 'emp') this.burstEmp(stacks);
+    else if (key === 'chicken') this.squawk();
+    else if (key === 'blackhole') this.spawnBlackhole();
+  }
+
+  /// 尖叫鸡: one scream, every enemy takes a little damage and flinches.
+  squawk() {
+    const damage = this.state.damage * 0.35;
+    const ring = this.add
+      .circle(this.player.x, this.player.y, 40, 0xffd166, 0.3)
+      .setDepth(6);
+
+    this.tweens.add({
+      targets: ring,
+      scale: 8,
+      alpha: 0,
+      duration: 520,
+      onComplete: () => ring.destroy()
+    });
+
+    for (const enemy of this.enemies.getChildren()) {
+      if (!enemy.active) continue;
+      enemy.setData('slowUntil', this.time.now + 3000);
+      this.damageEnemy(enemy, damage);
+    }
+
+    this.cameras.main.shake(120, 0.004);
+    haptic('squeak');
+    Sfx.zap();
+  }
+
+  /// 黑洞发生器: a hole opens at a random spot, drags the horde in, then pops.
+  spawnBlackhole() {
+    const x = Phaser.Math.Between(70, Math.max(80, this.layout.width - 70));
+    const y = Phaser.Math.Between(
+      this.safeTop + 70,
+      Math.max(this.safeTop + 80, this.layout.height - 70)
+    );
+
+    const sprite = this.add.circle(x, y, 26, 0x1b0f2a, 0.92).setDepth(5);
+    sprite.setStrokeStyle(2, 0xb07bff, 0.9);
+
+    this.blackholes.push({
+      sprite,
+      until: this.time.now + 1200,
+      damage: this.state.damage * 1.2
+    });
+
+    this.tweens.add({
+      targets: sprite,
+      scale: { from: 0.4, to: 1 },
+      duration: 200,
+      ease: 'Back.out'
+    });
+
+    Sfx.zap();
+  }
+
+  updateBlackholes(delta) {
+    if (this.blackholes.length === 0) return;
+
+    const now = this.time.now;
+
+    for (let i = this.blackholes.length - 1; i >= 0; i--) {
+      const hole = this.blackholes[i];
+      const sprite = hole.sprite;
+
+      if (!sprite.active || now > hole.until) {
+        if (sprite.active) {
+          const radius = 120;
+          this.spawnBurst(sprite.x, sprite.y, 0xb07bff, 12);
+
+          for (const enemy of this.enemies.getChildren()) {
+            if (!enemy.active) continue;
+            if (
+              Phaser.Math.Distance.Between(sprite.x, sprite.y, enemy.x, enemy.y) >
+              radius
+            ) {
+              continue;
+            }
+            this.damageEnemy(enemy, hole.damage);
+          }
+
+          this.tweens.add({
+            targets: sprite,
+            scale: 1.6,
+            alpha: 0,
+            duration: 200,
+            onComplete: () => sprite.destroy()
+          });
+        }
+
+        this.blackholes.splice(i, 1);
+        Sfx.mine();
+        continue;
+      }
+
+      for (const enemy of this.enemies.getChildren()) {
+        if (!enemy.active || !enemy.body) continue;
+        const dist = Phaser.Math.Distance.Between(
+          sprite.x,
+          sprite.y,
+          enemy.x,
+          enemy.y
+        );
+        if (dist > 240) continue;
+
+        const angle = Math.atan2(sprite.y - enemy.y, sprite.x - enemy.x);
+        enemy.body.velocity.set(Math.cos(angle) * 260, Math.sin(angle) * 260);
+      }
+    }
+  }
+
+  /// A melee swing: a short arc that hits everything in front and throws it.
+  swingWeapon(stats, target) {
+    const base = Math.atan2(
+      target.y - this.player.y,
+      target.x - this.player.x
+    );
+    const r = stats.range;
+
+    const arc = this.add.graphics().setDepth(8);
+    arc.fillStyle(stats.def.color, 0.3);
+    arc.beginPath();
+    arc.arc(this.player.x, this.player.y, r, base - 0.9, base + 0.9, false);
+    arc.lineTo(this.player.x, this.player.y);
+    arc.closePath();
+    arc.fillPath();
+
+    this.tweens.add({
+      targets: arc,
+      alpha: 0,
+      duration: 200,
+      onComplete: () => arc.destroy()
+    });
+
+    for (const enemy of this.enemies.getChildren()) {
+      if (!enemy.active) continue;
+
+      const dist = Phaser.Math.Distance.Between(
+        this.player.x,
+        this.player.y,
+        enemy.x,
+        enemy.y
+      );
+      if (dist > r + 14) continue;
+
+      const angle = Math.atan2(
+        enemy.y - this.player.y,
+        enemy.x - this.player.x
+      );
+      if (Math.abs(Phaser.Math.Angle.Wrap(angle - base)) > 1.1) continue;
+
+      this.damageEnemy(enemy, stats.damage);
+      enemy.setData('knockUntil', this.time.now + 260);
+      enemy.setData('knockX', Math.cos(angle));
+      enemy.setData('knockY', Math.sin(angle));
+    }
+
+    Sfx.hit();
+    this.hapticOnce('impact', 120);
+  }
+
+  /// 闪电法杖: bolts fall on a few random enemies in range.
+  smiteWeapon(stats) {
+    const pool = [];
+
+    for (const enemy of this.enemies.getChildren()) {
+      if (!enemy.active) continue;
+      const dist = Phaser.Math.Distance.Between(
+        this.player.x,
+        this.player.y,
+        enemy.x,
+        enemy.y
+      );
+      if (dist > stats.range) continue;
+      pool.push(enemy);
+    }
+
+    const count = Math.min(stats.count, pool.length);
+
+    for (let i = 0; i < count; i++) {
+      const enemy = pool.splice(Phaser.Math.Between(0, pool.length - 1), 1)[0];
+
+      const bolt = this.add.graphics().setDepth(9);
+      bolt.lineStyle(3, 0xffee88, 0.95);
+      bolt.lineBetween(
+        enemy.x + Phaser.Math.Between(-40, 40),
+        this.safeTop,
+        enemy.x,
+        enemy.y
+      );
+
+      this.tweens.add({
+        targets: bolt,
+        alpha: 0,
+        duration: 180,
+        onComplete: () => bolt.destroy()
+      });
+
+      this.spawnBurst(enemy.x, enemy.y, 0xffee88, 3);
+      this.damageEnemy(enemy, stats.damage);
+    }
+
+    if (count > 0) Sfx.zap();
+  }
+
+  /// 毒液蘑菇: a puddle of poison at the player's feet.
+  dropPoisonPool(stats) {
+    const pool = this.add
+      .circle(this.player.x, this.player.y, 44, 0x9be564, 0.28)
+      .setDepth(1);
+
+    this.poisonPools.push({
+      sprite: pool,
+      damage: stats.damage,
+      until: this.time.now + 4500,
+      tickAt: 0
+    });
+
+    if (this.poisonPools.length > 5) {
+      const old = this.poisonPools.shift();
+      old.sprite.destroy();
+    }
+  }
+
+  updatePoisonPools(delta) {
+    if (this.poisonPools.length === 0) return;
+
+    const now = this.time.now;
+
+    for (let i = this.poisonPools.length - 1; i >= 0; i--) {
+      const pool = this.poisonPools[i];
+
+      if (!pool.sprite.active || now > pool.until) {
+        if (pool.sprite.active) {
+          const sprite = pool.sprite;
+          this.tweens.add({
+            targets: sprite,
+            alpha: 0,
+            duration: 260,
+            onComplete: () => sprite.destroy()
+          });
+        }
+        this.poisonPools.splice(i, 1);
+        continue;
+      }
+
+      if (now < pool.tickAt) continue;
+      pool.tickAt = now + 500;
+
+      for (const enemy of this.enemies.getChildren()) {
+        if (!enemy.active) continue;
+        if (
+          Phaser.Math.Distance.Between(
+            pool.sprite.x,
+            pool.sprite.y,
+            enemy.x,
+            enemy.y
+          ) > 52
+        ) {
+          continue;
+        }
+
+        enemy.setData('slowUntil', now + 1200);
+        this.damageEnemy(enemy, pool.damage);
+      }
+    }
+  }
+
+  /// 仙人掌: planted where the player stands, pricks anyone who touches it.
+  placeCactusWeapon(stats) {
+    if (this.cactuses.length >= 3) {
+      const old = this.cactuses.shift();
+      old.sprite.destroy();
+    }
+
+    const sprite = this.add
+      .text(this.player.x, this.player.y, '🌵', {
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        fontSize: `${Math.round(28 * this.layout.uiScale)}px`
+      })
+      .setOrigin(0.5, 0.8)
+      .setDepth(4);
+
+    this.cactuses.push({
+      sprite,
+      damage: stats.damage,
+      tickAt: 0,
+      until: this.time.now + 12000
+    });
+
+    this.tweens.add({
+      targets: sprite,
+      scale: { from: 0.4, to: 1 },
+      duration: 220,
+      ease: 'Back.out'
+    });
+  }
+
+  updateCacti(delta) {
+    if (this.cactuses.length === 0) return;
+
+    const now = this.time.now;
+
+    for (let i = this.cactuses.length - 1; i >= 0; i--) {
+      const cactus = this.cactuses[i];
+
+      if (!cactus.sprite.active || now > cactus.until) {
+        if (cactus.sprite.active) {
+          const sprite = cactus.sprite;
+          this.tweens.add({
+            targets: sprite,
+            alpha: 0,
+            duration: 220,
+            onComplete: () => sprite.destroy()
+          });
+        }
+        this.cactuses.splice(i, 1);
+        continue;
+      }
+
+      if (now < cactus.tickAt) continue;
+      cactus.tickAt = now + 500;
+
+      for (const enemy of this.enemies.getChildren()) {
+        if (!enemy.active) continue;
+        const dist = Phaser.Math.Distance.Between(
+          cactus.sprite.x,
+          cactus.sprite.y,
+          enemy.x,
+          enemy.y
+        );
+        if (dist > 46) continue;
+
+        const angle = Math.atan2(
+          enemy.y - cactus.sprite.y,
+          enemy.x - cactus.sprite.x
+        );
+        enemy.setData('knockUntil', now + 200);
+        enemy.setData('knockX', Math.cos(angle));
+        enemy.setData('knockY', Math.sin(angle));
+        this.damageEnemy(enemy, cactus.damage);
+      }
+    }
+  }
+
+  /// 回旋镖: flies out, turns around, hits everything again on the way back.
+  throwBoomerang(stats, target) {
+    const angle = Math.atan2(
+      target.y - this.player.y,
+      target.x - this.player.x
+    );
+
+    const sprite = this.add
+      .image(this.player.x, this.player.y, 'disc')
+      .setDepth(9)
+      .setTint(stats.def.color);
+
+    this.boomerangs.push({
+      sprite,
+      angle,
+      speed: stats.speed,
+      travelled: 0,
+      outLimit: Math.min(stats.range, 240),
+      phase: 'out',
+      damage: stats.damage,
+      hit: new Set()
+    });
+
+    Sfx.shoot();
+  }
+
+  updateBoomerangs(delta) {
+    if (this.boomerangs.length === 0) return;
+
+    const dt = delta / 1000;
+
+    for (let i = this.boomerangs.length - 1; i >= 0; i--) {
+      const b = this.boomerangs[i];
+      const sprite = b.sprite;
+
+      if (!sprite.active) {
+        this.boomerangs.splice(i, 1);
+        continue;
+      }
+
+      if (b.phase === 'out') {
+        sprite.x += Math.cos(b.angle) * b.speed * dt;
+        sprite.y += Math.sin(b.angle) * b.speed * dt;
+        b.travelled += b.speed * dt;
+
+        if (b.travelled >= b.outLimit) {
+          b.phase = 'back';
+          b.hit.clear();
+        }
+      } else {
+        const dx = this.player.x - sprite.x;
+        const dy = this.player.y - sprite.y;
+        const dist = Math.hypot(dx, dy) || 1;
+
+        sprite.x += (dx / dist) * b.speed * dt;
+        sprite.y += (dy / dist) * b.speed * dt;
+
+        if (dist < 26) {
+          sprite.destroy();
+          this.boomerangs.splice(i, 1);
+          continue;
+        }
+      }
+
+      sprite.rotation += dt * 12;
+
+      for (const enemy of this.enemies.getChildren()) {
+        if (!enemy.active || b.hit.has(enemy)) continue;
+        if (
+          Phaser.Math.Distance.Between(sprite.x, sprite.y, enemy.x, enemy.y) > 26
+        ) {
+          continue;
+        }
+
+        b.hit.add(enemy);
+        this.damageEnemy(enemy, b.damage);
+      }
+    }
+  }
+
+  /// 狂躁症药丸 pays its price here: a sliver of health, no i-frames.
+  drainHp(amount) {
+    const s = this.state;
+    s.hp = Math.max(0, s.hp - amount);
+    if (s.hp <= 0) this.gameOver();
   }
 
   /// 固定炮塔: one deployment per stack, planted around the player as the wave

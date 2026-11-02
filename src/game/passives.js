@@ -23,7 +23,9 @@ const ACTIVE_COOLDOWNS = {
   flamer: [5, 3.5],
   mine: [3.5, 2.5],
   totem: [12, 9],
-  emp: [9, 7]
+  emp: [9, 7],
+  chicken: [10, 8],
+  blackhole: [15, 12]
 };
 
 export function activeCooldown(key, stacks) {
@@ -247,6 +249,19 @@ export const PASSIVE_POOL = [
     max: 2,
     basePrice: 30,
     desc: () => '跟随你的无人机，自动向最近的敌人发射激光'
+  },
+  {
+    key: 'mania',
+    name: '狂躁症药丸',
+    emoji: '💊',
+    color: 0xff5a72,
+    hex: '#ff5a72',
+    max: 2,
+    basePrice: 26,
+    desc: () => '攻速 +30%，但每次攻击都会扣掉自己 1 点生命',
+    apply(state) {
+      state.fireInterval = Math.max(80, state.fireInterval * 0.77);
+    }
   }
 ];
 
@@ -296,6 +311,30 @@ export const ACTIVE_POOL = [
     basePrice: 30,
     desc: (level) =>
       `每 ${activeCooldown('emp', level)} 秒放出冲击波，伤害并减速全场敌人`
+  },
+  {
+    key: 'chicken',
+    name: '尖叫鸡',
+    emoji: '🐔',
+    color: 0xffd166,
+    hex: '#ffd166',
+    active: true,
+    max: 2,
+    basePrice: 28,
+    desc: (level) =>
+      `每 ${activeCooldown('chicken', level)} 秒尖叫一声：全场敌人受点伤并被吓得减速`
+  },
+  {
+    key: 'blackhole',
+    name: '黑洞发生器',
+    emoji: '🕳️',
+    color: 0xb07bff,
+    hex: '#b07bff',
+    active: true,
+    max: 2,
+    basePrice: 32,
+    desc: (level) =>
+      `每 ${activeCooldown('blackhole', level)} 秒在随机位置开一个黑洞，把敌人吸过去再炸开`
   }
 ];
 
