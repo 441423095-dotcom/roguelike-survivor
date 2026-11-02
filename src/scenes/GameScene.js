@@ -1270,6 +1270,12 @@ export class GameScene extends Phaser.Scene {
     for (const enemy of this.enemies.getChildren()) {
       if (!enemy.active || !enemy.body) continue;
 
+      const flashUntil = enemy.getData('flashUntil') || 0;
+      if (flashUntil && this.time.now >= flashUntil) {
+        enemy.setData('flashUntil', 0);
+        enemy.clearTint();
+      }
+
       // A pan hit or a cactus throw lets the enemy fly for a moment before its
       // own chase resumes.
       const knockUntil = enemy.getData('knockUntil') || 0;
@@ -1637,6 +1643,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   updatePickups(dt) {
+    if (this.pickups.length === 0) return;
+
     const px = this.player.x;
     const py = this.player.y;
     const radius = this.state.pickupRadius;
@@ -1660,24 +1668,29 @@ export class GameScene extends Phaser.Scene {
       }
 
       if (dist < 20) {
-        const value = pickup.getData('value') || 1;
-        const kind = pickup.getData('kind');
-
-        if (kind === 'coin') {
-          this.addCoins(value);
-          Sfx.coin();
-        } else if (kind === 'heart') {
-          this.healNow(value);
-          Sfx.heal();
-        } else {
-          this.addXp(value);
-          Sfx.gem();
-        }
+        this.collectPickup(pickup);
         this.hapticOnce('pickup', 70);
-        pickup.destroy();
         this.pickups.splice(i, 1);
       }
     }
+  }
+
+  /// Banks one pickup as if the player had walked over it.
+  collectPickup(pickup) {
+    const kind = pickup.getData('kind');
+    const value = pickup.getData('value') || 1;
+
+    if (kind === 'coin') {
+      this.addCoins(value);
+      Sfx.coin();
+    } else if (kind === 'heart') {
+      this.healNow(value);
+    } else {
+      this.addXp(value);
+      Sfx.gem();
+    }
+
+    pickup.destroy();
   }
 
   updateBullets(delta) {
@@ -2269,27 +2282,6 @@ export class GameScene extends Phaser.Scene {
     if (s.coins < 2) return;
 
     s.coins -= 2;
-    this.coinPuff();
-  }
-
-  coinPuff() {
-    const label = this.add
-      .text(this.player.x, this.player.y - 18, '金币 -2', {
-        fontFamily: FONT,
-        fontSize: `${Math.round(10 * this.layout.uiScale)}px`,
-        color: '#ffe66d',
-        fontStyle: 'bold'
-      })
-      .setOrigin(0.5)
-      .setDepth(30);
-
-    this.tweens.add({
-      targets: label,
-      y: label.y - 26,
-      alpha: 0,
-      duration: 520,
-      onComplete: () => label.destroy()
-    });
   }
 
   /// 固定炮塔: one deployment per stack, planted around the player as the wave
@@ -3009,10 +3001,18 @@ export class GameScene extends Phaser.Scene {
     }
     enemy.setData('hp', hp);
     enemy.setTint(0xffffff);
-    const target = enemy;
-    this.time.delayedCall(70, () => {
-      if (target.active) target.clearTint();
-    });
+
+    if (enemy.getData('aura')) {
+      // Elites and bosses keep their tint windows: it can be a telegraph.
+      const target = enemy;
+      this.time.delayedCall(70, () => {
+        if (target.active) target.clearTint();
+      });
+    } else {
+      // A hit flash that expires on its own, cleared in the enemy loop instead of
+      // leaving a timer behind for every single bullet that lands.
+      enemy.setData('flashUntil', this.time.now + 70);
+    }
   }
 
   killEnemy(enemy) {
@@ -3130,7 +3130,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   spawnBurst(x, y, color, count) {
-    for (let i = 0; i < count; i++) {
+    // A late wave spawns dozens of these a second. Past a point they stop
+    // reading as sparks and start costing frames, so the count is trimmed.
+    const live = this.liveBursts || 0;
+    if (live > 200) return;
+
+    const want = live > 120 ? Math.max(2, Math.ceil(count / 2)) : count;
+    this.liveBursts = live + want;
+
+    for (let i = 0; i < want; i++) {
       const angle = Math.random() * Math.PI * 2;
       const dist = 30 + Math.random() * 70;
       const dot = this.add
@@ -3143,7 +3151,10 @@ export class GameScene extends Phaser.Scene {
         alpha: 0,
         scale: 0.4,
         duration: 260 + Math.random() * 180,
-        onComplete: () => dot.destroy()
+        onComplete: () => {
+          this.liveBursts = Math.max(0, (this.liveBursts || 1) - 1);
+          dot.destroy();
+        }
       });
     }
   }
@@ -3219,6 +3230,14 @@ export class GameScene extends Phaser.Scene {
       ease: 'Back.out'
     });
     this.pickups.push(pickup);
+
+    // A floor littered with untouched drops is both unreadable and expensive, so
+    // once the crowd grows the oldest ones are banked automatically.
+    while (this.pickups.length > 60) {
+      const oldest = this.pickups.shift();
+      if (!oldest || !oldest.active) continue;
+      this.collectPickup(oldest);
+    }
   }
 
   addXp(amount) {
@@ -3592,6 +3611,9 @@ export class GameScene extends Phaser.Scene {
 
     const enemy = this.enemies.create(x, y, def.texture);
     if (!enemy) return null;
+
+    // Sparks alive on screen; the burst effect uses this to keep its budget.
+    this.liveBursts = this.liveBursts || 0;
 
     enemy.setDepth(3);
     // Nothing walks up under the HUD strip; the world bounds take care of it.

@@ -163,11 +163,16 @@ export const Sfx = {
   },
 
   coin() {
+    // A vacuumed pile of coins lands in the same frame; one chime is the sound.
+    if (!A.ctx || clock() - (A.coinAt || 0) < 0.06) return;
+    A.coinAt = clock();
     tone({ freq: 1046, type: 'square', dur: 0.05, vol: 0.045 });
     tone({ freq: 1568, type: 'square', dur: 0.06, vol: 0.035, at: 0.05 });
   },
 
   gem() {
+    if (!A.ctx || clock() - (A.gemAt || 0) < 0.05) return;
+    A.gemAt = clock();
     tone({ freq: 880, type: 'sine', dur: 0.045, vol: 0.03 });
   },
 
