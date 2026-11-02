@@ -150,6 +150,14 @@ export class GameScene extends Phaser.Scene {
       // until the trinket is bought.
       coinCap: Number.POSITIVE_INFINITY,
       coinMult: 1,
+      // 流派核心: how fast summons fire, whether shots bounce or grow, and the
+      // low-health and coin-fed damage rules. Neutral until an item is bought.
+      minionRate: 1,
+      bounceShots: 0,
+      giantShots: 0,
+      berserk: 0,
+      thorncoat: 0,
+      greedyBonus: 0,
       // Item bonuses: per-style weapon damage, per-gun synergy, padding on
       // splash radius, a bonus against slowed enemies and the kill explosion.
       styleBonus: { bullet: 1, energy: 1, explosive: 1, blade: 1 },
@@ -1083,10 +1091,14 @@ export class GameScene extends Phaser.Scene {
       else if (behaviour === 'puddle') this.dropPoisonPool(stats);
       else if (behaviour === 'cactus') this.placeCactusWeapon(stats);
       else if (behaviour === 'boomerang') this.throwBoomerang(stats, target);
+      else if (behaviour === 'plane') this.launchPlane(stats);
       else this.fireWeapon(stats, target);
 
       // 狂躁症药丸: every attack costs a sliver of health.
       if (this.items.mania) this.drainHp(1);
+
+      // 幸运硬币: the purse pays for all that luck, a little at a time.
+      if (this.items.luckycoin && Math.random() < 0.05) this.spendAttackCoins();
 
       this.cooldowns[i] = stats.interval;
     }
@@ -1133,7 +1145,14 @@ export class GameScene extends Phaser.Scene {
 
       bullet.setDepth(7);
       bullet.setRotation(angle);
-      bullet.body.setCircle(stats.def.bodyRadius, stats.def.bodyOffset, stats.def.bodyOffset);
+      // 巨大化核心: twice the picture and twice the hitbox.
+      const grow = this.state.giantShots ? 2 : 1;
+      if (grow > 1) bullet.setScale(grow);
+      bullet.body.setCircle(
+        stats.def.bodyRadius * grow,
+        stats.def.bodyOffset,
+        stats.def.bodyOffset
+      );
       bullet.setVelocity(
         Math.cos(angle) * stats.speed,
         Math.sin(angle) * stats.speed
@@ -1166,6 +1185,73 @@ export class GameScene extends Phaser.Scene {
       duration: 130,
       onComplete: () => flash.destroy()
     });
+  }
+
+  /// 自爆小飞机: one kamikaze drone flies at the nearest enemy and pops on it.
+  launchPlane(stats) {
+    const target = this.nearestEnemy(stats.range);
+    if (!target) return;
+
+    const plane = this.add
+      .image(this.player.x, this.player.y, 'rocket')
+      .setDepth(9)
+      .setTint(0xffd166)
+      .setScale(this.state.giantShots ? 1.5 : 0.8);
+
+    plane.setRotation(
+      Phaser.Math.Angle.Between(this.player.x, this.player.y, target.x, target.y)
+    );
+
+    const distance = Phaser.Math.Distance.Between(
+      this.player.x,
+      this.player.y,
+      target.x,
+      target.y
+    );
+
+    this.tweens.add({
+      targets: plane,
+      x: target.x,
+      y: target.y,
+      angle: plane.angle + 360,
+      duration: Math.max(200, distance / 0.5),
+      ease: 'Sine.in',
+      onComplete: () => {
+        if (!plane.active) return;
+        this.explodePlane(plane, stats);
+      }
+    });
+
+    Sfx.shoot();
+  }
+
+  explodePlane(plane, stats) {
+    const x = plane.x;
+    const y = plane.y;
+    plane.destroy();
+
+    const radius = Math.max(50, stats.splash || 60);
+
+    const ring = this.add.circle(x, y, radius, 0xffd166, 0.26).setDepth(6);
+    this.tweens.add({
+      targets: ring,
+      alpha: 0,
+      scale: 1.35,
+      duration: 260,
+      onComplete: () => ring.destroy()
+    });
+
+    this.spawnBurst(x, y, 0xff9a3f, 10);
+
+    for (const enemy of this.enemies.getChildren()) {
+      if (!enemy.active) continue;
+      if (Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y) > radius) continue;
+      this.damageEnemy(enemy, stats.damage);
+    }
+
+    Sfx.mine();
+    this.hapticOnce('impact', 120);
+    this.cameras.main.shake(80, 0.003);
   }
 
   updateEnemies(delta) {
@@ -1486,14 +1572,20 @@ export class GameScene extends Phaser.Scene {
 
   updateBullets(delta) {
     const field = this.layout.field;
+    const bounce = !!this.state.bounceShots;
+    // A bouncing shot deserves the time to come back around.
+    const life = bounce ? 2600 : 1700;
 
     for (const bullet of this.bullets.getChildren()) {
       if (!bullet.active) continue;
       const age = (bullet.getData('age') || 0) + delta;
       bullet.setData('age', age);
 
+      // 弹射引擎: the arena's walls are mirrors rather than a bin.
+      if (bounce) this.bounceBullet(bullet, field);
+
       if (
-        age > 1700 ||
+        age > life ||
         bullet.x < -30 ||
         bullet.y < -30 ||
         bullet.x > field.width + 30 ||
@@ -1501,6 +1593,55 @@ export class GameScene extends Phaser.Scene {
       ) {
         this.kill(bullet);
       }
+    }
+  }
+
+  /// Turns a bullet around at the arena edge and makes the next leg hurt more.
+  bounceBullet(bullet, field) {
+    const body = bullet.body;
+    if (!body) return;
+
+    const left = 4;
+    const right = field.width - 4;
+    const top = (this.safeTop || 0) + 4;
+    const bottom = field.height - 4;
+    let bounced = false;
+
+    if (bullet.x < left && body.velocity.x < 0) {
+      bullet.x = left;
+      body.velocity.x *= -1;
+      bounced = true;
+    } else if (bullet.x > right && body.velocity.x > 0) {
+      bullet.x = right;
+      body.velocity.x *= -1;
+      bounced = true;
+    }
+
+    if (bullet.y < top && body.velocity.y < 0) {
+      bullet.y = top;
+      body.velocity.y *= -1;
+      bounced = true;
+    } else if (bullet.y > bottom && body.velocity.y > 0) {
+      bullet.y = bottom;
+      body.velocity.y *= -1;
+      bounced = true;
+    }
+
+    if (!bounced) return;
+
+    const bounces = (bullet.getData('bounces') || 0) + 1;
+    bullet.setData('bounces', bounces);
+
+    // Each reflection is worth a little more, up to a sane ceiling.
+    if (bounces <= 6) {
+      bullet.setData('damage', (bullet.getData('damage') || 1) * 1.15);
+    }
+
+    bullet.setRotation(Math.atan2(body.velocity.y, body.velocity.x));
+
+    if (bounces === 1) {
+      this.spawnBurst(bullet.x, bullet.y, 0x8fd8ff, 2);
+      Sfx.click();
     }
   }
 
@@ -1931,6 +2072,10 @@ export class GameScene extends Phaser.Scene {
       .setDepth(9)
       .setTint(stats.def.color);
 
+    // 巨大化核心 grows the boomerang too, and its hitbox with it.
+    const grow = this.state.giantShots ? 1.9 : 1;
+    if (grow > 1) sprite.setScale(grow);
+
     this.boomerangs.push({
       sprite,
       angle,
@@ -1939,6 +2084,7 @@ export class GameScene extends Phaser.Scene {
       outLimit: Math.min(stats.range, 240),
       phase: 'out',
       damage: stats.damage,
+      reach: 26 * grow,
       hit: new Set()
     });
 
@@ -1988,7 +2134,8 @@ export class GameScene extends Phaser.Scene {
       for (const enemy of this.enemies.getChildren()) {
         if (!enemy.active || b.hit.has(enemy)) continue;
         if (
-          Phaser.Math.Distance.Between(sprite.x, sprite.y, enemy.x, enemy.y) > 26
+          Phaser.Math.Distance.Between(sprite.x, sprite.y, enemy.x, enemy.y) >
+          (b.reach || 26)
         ) {
           continue;
         }
@@ -2004,6 +2151,35 @@ export class GameScene extends Phaser.Scene {
     const s = this.state;
     s.hp = Math.max(0, s.hp - amount);
     if (s.hp <= 0) this.gameOver();
+  }
+
+  /// 幸运硬币's price: every attack has a small chance of costing two coins.
+  spendAttackCoins() {
+    const s = this.state;
+    if (s.coins < 2) return;
+
+    s.coins -= 2;
+    this.coinPuff();
+  }
+
+  coinPuff() {
+    const label = this.add
+      .text(this.player.x, this.player.y - 18, '金币 -2', {
+        fontFamily: FONT,
+        fontSize: `${Math.round(10 * this.layout.uiScale)}px`,
+        color: '#ffe66d',
+        fontStyle: 'bold'
+      })
+      .setOrigin(0.5)
+      .setDepth(30);
+
+    this.tweens.add({
+      targets: label,
+      y: label.y - 26,
+      alpha: 0,
+      duration: 520,
+      onComplete: () => label.destroy()
+    });
   }
 
   /// 固定炮塔: one deployment per stack, planted around the player as the wave
@@ -2082,7 +2258,12 @@ export class GameScene extends Phaser.Scene {
       }
 
       const stacks = turret.getData('stacks') || 1;
-      turret.setData('cool', Math.max(280, 620 - 120 * (stacks - 1)));
+      // 宠物项圈 speeds every summon, turrets included.
+      const rate = this.state.minionRate || 1;
+      turret.setData(
+        'cool',
+        Math.max(200, (620 - 120 * (stacks - 1)) * rate)
+      );
       this.fireTurret(turret, target, stacks);
     }
   }
@@ -2210,7 +2391,7 @@ export class GameScene extends Phaser.Scene {
 
     if (target && this.time.now >= pet.readyAt) {
       pet.state = 'leap';
-      pet.readyAt = this.time.now + 1000;
+      pet.readyAt = this.time.now + 1000 * (this.state.minionRate || 1);
 
       const tx = target.x;
       const ty = target.y;
@@ -2266,7 +2447,7 @@ export class GameScene extends Phaser.Scene {
       if (!enemy.active) continue;
       if (Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y) > 22) continue;
 
-      orb.readyAt = this.time.now + 260;
+      orb.readyAt = this.time.now + 260 * (this.state.minionRate || 1);
       this.damageEnemy(enemy, this.state.damage * 0.5);
       this.spawnBurst(x, y, 0x8fd8ff, 3);
       break;
@@ -2289,7 +2470,7 @@ export class GameScene extends Phaser.Scene {
     const target = this.nearestEnemyFrom(x, y, 340);
     if (!target) return;
 
-    drone.readyAt = this.time.now + 700;
+    drone.readyAt = this.time.now + 700 * (this.state.minionRate || 1);
 
     const beam = this.add.graphics().setDepth(11);
     beam.lineStyle(3, 0x63ffe0, 0.75);
@@ -2703,7 +2884,13 @@ export class GameScene extends Phaser.Scene {
     // 冷冻剂 pays off against anything already crawling: the frost gun, the
     // toxin darts, the EMP and the frog's gas all set this up.
     const slowed = (enemy.getData('slowUntil') || 0) > this.time.now;
-    const dealt = slowed ? amount * (1 + (s.slowBonus || 0)) : amount;
+
+    // 狂战士之血: the lower the health, the harder everything hits.
+    const rage =
+      s.berserk && s.maxHp > 0
+        ? 1 + 0.15 * Math.min(9, Math.floor((1 - s.hp / s.maxHp) * 10))
+        : 1;
+    const dealt = (slowed ? amount * (1 + (s.slowBonus || 0)) : amount) * rage;
 
     const hp = (enemy.getData('hp') || 1) - dealt;
     if (hp <= 0) {
@@ -2981,6 +3168,9 @@ export class GameScene extends Phaser.Scene {
     if (this.character.skill && this.character.skill.key === 'thorns') {
       this.thornsBurst();
     }
+
+    // 荆棘刺甲: the same, but across the whole screen and in full.
+    if (s.thorncoat) this.thornCoatBurst(taken);
 
     if (s.hp <= 0) this.gameOver();
   }
@@ -3521,6 +3711,29 @@ export class GameScene extends Phaser.Scene {
       const d = Phaser.Math.Distance.Between(player.x, player.y, enemy.x, enemy.y);
       if (d <= radius) this.damageEnemy(enemy, damage);
     }
+  }
+
+  /// 荆棘刺甲: the hit is paid back to every enemy on screen, in full.
+  thornCoatBurst(damage) {
+    const ring = this.add
+      .circle(this.player.x, this.player.y, 34, 0xff5a72, 0.2)
+      .setDepth(5);
+
+    this.tweens.add({
+      targets: ring,
+      alpha: 0,
+      scale: 9,
+      duration: 380,
+      onComplete: () => ring.destroy()
+    });
+
+    for (const enemy of this.enemies.getChildren()) {
+      if (!enemy.active) continue;
+      this.damageEnemy(enemy, damage);
+    }
+
+    haptic('impact');
+    Sfx.zap();
   }
 
   /// Caps runaway stacking, so a long run cannot turn into a free ride: damage
@@ -4227,6 +4440,12 @@ export class GameScene extends Phaser.Scene {
     s.chainKill = 0;
     s.coinCap = Number.POSITIVE_INFINITY;
     s.coinMult = 1;
+    s.minionRate = 1;
+    s.bounceShots = 0;
+    s.giantShots = 0;
+    s.berserk = 0;
+    s.thorncoat = 0;
+    s.greedyBonus = 0;
 
     for (const card of this.cardHistory) {
       const def = UPGRADE_BY_KEY[card.key];

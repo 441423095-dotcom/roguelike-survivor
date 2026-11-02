@@ -337,6 +337,118 @@ export const PASSIVE_POOL = [
     apply(state) {
       state.fireInterval = Math.max(80, state.fireInterval * 0.893);
     }
+  },
+
+  // ---------------------------------------------------- build cores
+  // The four archetypes. Each card is one piece of a build rather than a flat
+  // number, and carries its archetype in `build` for future synergies. `minRank`
+  // is the quality the shop always sells it at.
+  {
+    key: 'collar',
+    name: '宠物项圈',
+    emoji: '📿',
+    color: 0x53f08a,
+    hex: '#53f08a',
+    build: 'summon',
+    minRank: 1,
+    max: 2,
+    basePrice: 28,
+    desc: () => '所有召唤物（宠物鼠、炮塔、无人机、光球、小飞机）攻速 +30%',
+    apply(state) {
+      state.minionRate = (state.minionRate || 1) * 0.77;
+    }
+  },
+  {
+    key: 'bounce',
+    name: '弹射引擎',
+    emoji: '🧲',
+    color: 0x4fb8ff,
+    hex: '#4fb8ff',
+    build: 'bounce',
+    minRank: 2,
+    max: 1,
+    basePrice: 34,
+    desc: () => '子弹碰到屏幕边缘会反弹，每次反弹伤害 +15%',
+    apply(state) {
+      state.bounceShots = 1;
+    }
+  },
+  {
+    key: 'giantcore',
+    name: '巨大化核心',
+    emoji: '🔵',
+    color: 0xb07bff,
+    hex: '#b07bff',
+    build: 'bounce',
+    minRank: 3,
+    max: 1,
+    basePrice: 36,
+    desc: () => '所有子弹与弹射物体积 +100%，但射程 -20%',
+    apply(state) {
+      state.giantShots = 1;
+      state.range *= 0.8;
+    }
+  },
+  {
+    key: 'berserk',
+    name: '狂战士之血',
+    emoji: '🩸',
+    color: 0xb07bff,
+    hex: '#b07bff',
+    build: 'rage',
+    minRank: 3,
+    max: 1,
+    basePrice: 38,
+    desc: () => '每损失 10% 生命，全局伤害 +15%（满血没有加成）',
+    apply(state) {
+      state.berserk = 1;
+    }
+  },
+  {
+    key: 'thorncoat',
+    name: '荆棘刺甲',
+    emoji: '🌵',
+    color: 0x4fb8ff,
+    hex: '#4fb8ff',
+    build: 'rage',
+    minRank: 2,
+    max: 1,
+    basePrice: 34,
+    desc: () => '受到伤害时，对全屏敌人反弹一次等额的伤害',
+    apply(state) {
+      state.thorncoat = 1;
+    }
+  },
+  {
+    key: 'luckycoin',
+    name: '幸运硬币',
+    emoji: '🪙',
+    color: 0x53f08a,
+    hex: '#53f08a',
+    build: 'gamble',
+    minRank: 1,
+    max: 2,
+    basePrice: 30,
+    desc: () => '暴击率 +20%，暴击伤害 +50%，但每次攻击有 5% 概率丢 2 金币',
+    apply(state) {
+      state.critChance = Math.min(0.9, (state.critChance || 0) + 0.2);
+      state.critMult += 0.5;
+    }
+  },
+  {
+    key: 'treasury',
+    name: '贪婪金库',
+    emoji: '🏦',
+    color: 0xb07bff,
+    hex: '#b07bff',
+    build: 'gamble',
+    minRank: 3,
+    max: 1,
+    basePrice: 36,
+    desc: () => '每拥有 10 个金币，攻击力 +1',
+    apply(state) {
+      state.greedyBonus = (state.greedyBonus || 0) + 1;
+    }
   }
 ];
 

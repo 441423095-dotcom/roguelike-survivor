@@ -366,6 +366,29 @@ export const WEAPONS = {
     splash: 85,
     bodyRadius: 8,
     bodyOffset: 4
+  },
+
+  // 统御流: a summon weapon. It never fires a bullet itself; it launches a
+  // kamikaze drone that homes at the nearest enemy and pops.
+  plane: {
+    key: 'plane',
+    name: '自爆小飞机',
+    emoji: '🛩️',
+    style: 'explosive',
+    texture: 'rocket',
+    color: 0xffd166,
+    behaviour: 'plane',
+    minRank: 2,
+    note: '每 5 秒放出一架小飞机，撞上敌人炸开一片',
+    interval: 5000,
+    damage: 26,
+    speed: 0,
+    range: 460,
+    count: 1,
+    spread: 0,
+    splash: 64,
+    bodyRadius: 5,
+    bodyOffset: 3
   }
 };
 
@@ -437,6 +460,13 @@ export function weaponStats(slot, state) {
   const synergy = 1 + (state.weaponSynergy || 0) * Math.max(0, carries(state) - 1);
   const rarity = rarityBonus(slot.rarity);
 
+  // 贪婪金库: a flat attack bonus that grows with the purse.
+  const treasury =
+    (state.greedyBonus || 0) * Math.floor(Math.max(0, state.coins || 0) / 10);
+
+  // 统御流 summons fire on the same clock as the minions do.
+  const summonRate = def.behaviour === 'plane' ? state.minionRate || 1 : 1;
+
   return {
     def,
     damage:
@@ -445,10 +475,14 @@ export function weaponStats(slot, state) {
       (state.damage / BASE_STATS.damage) *
       styleBonus *
       synergy *
-      rarity.damage,
+      rarity.damage +
+      treasury,
     interval: Math.max(
       80,
-      def.interval * levelRate * (state.fireInterval / BASE_STATS.fireInterval)
+      def.interval *
+        levelRate *
+        (state.fireInterval / BASE_STATS.fireInterval) *
+        summonRate
     ),
     count:
       def.count +

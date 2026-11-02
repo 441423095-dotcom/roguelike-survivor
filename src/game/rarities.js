@@ -90,7 +90,8 @@ const WEAPON_BASE_PRICE = {
   void: 46,
   plasma: 42,
   rail: 50,
-  storm: 44
+  storm: 44,
+  plane: 34
 };
 
 export function rarityFor(key) {

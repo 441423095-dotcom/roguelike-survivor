@@ -63,7 +63,8 @@ function rollItems(wave, stacks, count, discount, quality = wave, allowActive = 
   return chosen.map((def) => {
     const have = stacks[def.key] || 0;
     const max = def.max || 1;
-    const rarity = rollWeaponRarity(quality);
+    // A build core always arrives at its own quality or better.
+    const rarity = rollWeaponRarity(quality, def.minRank || 0);
 
     // A blue-or-better trinket card hands over two stacks at once: an honest
     // upgrade at the point where one more copy of a flat item is worth little.
@@ -115,7 +116,7 @@ function rollWeapon(wave, loadout, minRank = 0, quality = wave) {
 
   const key = pool[Math.floor(Math.random() * pool.length)];
   const def = WEAPONS[key];
-  const rarity = rollWeaponRarity(quality, minRank);
+  const rarity = rollWeaponRarity(quality, Math.max(minRank, def.minRank || 0));
   const level = weaponLevel(wave);
 
   return {
