@@ -378,6 +378,7 @@ export const WEAPONS = {
     texture: 'rocket',
     color: 0xffd166,
     behaviour: 'plane',
+    build: 'summon',
     minRank: 2,
     note: '每 5 秒放出一架小飞机，撞上敌人炸开一片',
     interval: 5000,

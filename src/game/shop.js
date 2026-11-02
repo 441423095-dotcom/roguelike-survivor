@@ -3,7 +3,7 @@
 // from the wave's curve, so a deep run is offered real upgrades instead of a
 // rack of white guns.
 
-import { ITEM_POOL, itemPrice, shopDiscount } from './passives.js';
+import { ITEM_POOL, ITEM_BY_KEY, itemPrice, shopDiscount } from './passives.js';
 import { WEAPONS, WEAPON_SLOTS } from './weapons.js';
 import {
   rollWeaponRarity,
@@ -25,7 +25,104 @@ function roundPrice(value) {
   return Math.max(10, Math.round(value / 5) * 5);
 }
 
-function rollItems(wave, stacks, count, discount, quality = wave, allowActive = true) {
+// ------------------------------------------------------------ build weighting
+//
+// The shelf reads what the player is already building. Owning one piece of an
+// archetype makes the rest of that archetype come up more often, and the piece
+// that would complete a half-built one comes up more often still — without ever
+// removing the other archetypes from the hat, so mixing and switching builds
+// stays possible.
+
+const BUILD_BOOST = 2.2;
+const PARTNER_BOOST = 3;
+
+// Which piece finishes which build, both ways: owning either half helps the
+// other. 宠物项圈 -> 自爆小飞机, 狂战士之血 -> 荆棘刺甲, and so on.
+const BUILD_PARTNERS = {
+  collar: ['plane'],
+  plane: ['collar'],
+  bounce: ['giantcore'],
+  giantcore: ['bounce'],
+  berserk: ['thorncoat'],
+  thorncoat: ['berserk'],
+  luckycoin: ['treasury'],
+  treasury: ['luckycoin']
+};
+
+const EMPTY_PROFILE = { tags: {}, partners: [] };
+
+/// What this run is already building, read from the items it owns and the guns
+/// it carries. Each tagged piece adds weight to its own archetype; each piece
+/// with a partner puts that partner on a short list that gets a bigger push.
+export function buildProfile(owned, loadout) {
+  const stacks = owned || {};
+  const tags = {};
+  const partners = [];
+
+  const note = (def) => {
+    if (!def) return;
+
+    if (def.build) tags[def.build] = (tags[def.build] || 0) + 1;
+
+    const partner = BUILD_PARTNERS[def.key];
+    if (!partner) return;
+
+    for (const key of partner) {
+      if (partners.indexOf(key) === -1) partners.push(key);
+    }
+  };
+
+  for (const key of Object.keys(stacks)) {
+    if (!stacks[key]) continue;
+    note(ITEM_BY_KEY[key]);
+  }
+
+  for (const slot of loadout || []) {
+    if (!slot) continue;
+    note(WEAPONS[slot.key] || slot.def);
+  }
+
+  return { tags, partners };
+}
+
+/// How heavily one shelf entry is weighted for this run. Untagged cards, and
+/// everything outside the player's own builds, keep the base weight of 1.
+function buildWeight(def, profile) {
+  if (!def || !profile) return 1;
+
+  let weight = 1;
+  if (def.build && profile.tags[def.build]) weight *= BUILD_BOOST;
+  if (profile.partners.indexOf(def.key) !== -1) weight *= PARTNER_BOOST;
+
+  return weight;
+}
+
+/// A weighted draw from a list of definitions: a heavy entry is likelier, but
+/// every entry in the list still has a chance of coming up.
+function pickWeighted(list, profile) {
+  let total = 0;
+  for (const entry of list) total += buildWeight(entry, profile);
+
+  if (total <= 0) return list[list.length - 1];
+
+  let roll = Math.random() * total;
+  for (const entry of list) {
+    roll -= buildWeight(entry, profile);
+    if (roll <= 0) return entry;
+  }
+
+  return list[list.length - 1];
+}
+
+function rollItems(
+  wave,
+  stacks,
+  count,
+  discount,
+  quality = wave,
+  allowActive = true,
+  profile = EMPTY_PROFILE
+) {
   let available = ITEM_POOL.filter(
     (def) => (stacks[def.key] || 0) < (def.max || 1)
   );
@@ -53,7 +150,8 @@ function rollItems(wave, stacks, count, discount, quality = wave, allowActive = 
     }
     if (pool.length === 0) pool = available;
 
-    const def = pool[Math.floor(Math.random() * pool.length)];
+    // Weighted towards whatever the player already carries, but never only that.
+    const def = pickWeighted(pool, profile);
     used.push(def.key);
     chosen.push(def);
 
@@ -102,7 +200,13 @@ function rollItems(wave, stacks, count, discount, quality = wave, allowActive = 
 
 /// Weapon cards on the shelf. Duplicates are allowed, so two of the same gun at
 /// the same tier can be collected and merged in the shop.
-function rollWeapon(wave, loadout, minRank = 0, quality = wave) {
+function rollWeapon(
+  wave,
+  loadout,
+  minRank = 0,
+  quality = wave,
+  profile = EMPTY_PROFILE
+) {
   const weapons = loadout || [];
   const hasFreeSlot = weapons.length < WEAPON_SLOTS;
 
@@ -114,8 +218,13 @@ function rollWeapon(wave, loadout, minRank = 0, quality = wave) {
 
   if (pool.length === 0) return null;
 
-  const key = pool[Math.floor(Math.random() * pool.length)];
-  const def = WEAPONS[key];
+  const def = pickWeighted(
+    pool.map((key) => WEAPONS[key]),
+    profile
+  );
+  if (!def) return null;
+
+  const key = def.key;
   const rarity = rollWeaponRarity(quality, Math.max(minRank, def.minRank || 0));
   const level = weaponLevel(wave);
 
@@ -147,10 +256,12 @@ export function rollShopItems(wave, owned, loadout, luck = 0, allowActive = true
   const discount = shopDiscount(stacks);
   // 幸运 nudges the whole shelf's quality, as if the run were a little deeper.
   const quality = wave + Math.max(0, luck) * 0.5;
+  // What the player is already building: this is what tilts the shelf.
+  const profile = buildProfile(stacks, loadout);
 
   const weapons = [];
   for (let i = 0; i < WEAPON_OFFERS; i++) {
-    const weapon = rollWeapon(wave, loadout, 0, quality);
+    const weapon = rollWeapon(wave, loadout, 0, quality, profile);
     if (!weapon) continue;
     weapon.price = roundPrice(weapon.basePrice * discount);
     weapons.push(weapon);
@@ -163,7 +274,7 @@ export function rollShopItems(wave, owned, loadout, luck = 0, allowActive = true
     const best = weapons.reduce((top, weapon) => Math.max(top, weapon.rank), -1);
     if (best < floor) {
       const slot = Math.floor(Math.random() * weapons.length);
-      const forced = rollWeapon(wave, loadout, floor, quality);
+      const forced = rollWeapon(wave, loadout, floor, quality, profile);
       if (forced) {
         forced.price = roundPrice(forced.basePrice * discount);
         weapons[slot] = forced;
@@ -177,7 +288,8 @@ export function rollShopItems(wave, owned, loadout, luck = 0, allowActive = true
     weapons.length > 0 ? ITEM_SLOTS : SHOP_SLOTS,
     discount,
     quality,
-    allowActive
+    allowActive,
+    profile
   );
 
   return items.concat(weapons);
