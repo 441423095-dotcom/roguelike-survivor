@@ -50,7 +50,9 @@ export const HAPTICS = {
 
   fart: { events: [{ attackTime: 0.02, decayTime: 0.24, duration: 0.28, intensity: 0.65, sharpness: 0.04, time: 0, type: 'continuous' }, { intensity: 0.3, sharpness: 0.12, time: 0.05, type: 'transient' }] },
 
-  squeak: { events: [{ intensity: 0.4, sharpness: 1, time: 0, type: 'transient' }, { intensity: 0.3, sharpness: 0.9, time: 0.09, type: 'transient' }] }
+  squeak: { events: [{ intensity: 0.4, sharpness: 1, time: 0, type: 'transient' }, { intensity: 0.3, sharpness: 0.9, time: 0.09, type: 'transient' }] },
+
+  blink: { curves: [{ parameter: 'intensity', points: [{ time: 0, value: 0.1 }, { time: 0.12, value: 0.7 }, { time: 0.24, value: 0.05 }], time: 0 }], events: [{ intensity: 0.7, sharpness: 0.95, time: 0, type: 'transient' }, { attackTime: 0.02, duration: 0.18, intensity: 0.35, releaseTime: 0.1, sharpness: 0.6, time: 0.03, type: 'continuous' }, { intensity: 0.4, sharpness: 0.35, time: 0.18, type: 'transient' }] }
 };
 
 const channel =

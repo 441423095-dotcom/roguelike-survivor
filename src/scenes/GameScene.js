@@ -5,7 +5,7 @@
 import { computeLayout, hudGeometry } from '../ui/layout.js';
 import { COLORS, FONT } from '../ui/style.js';
 import { rollCards, UPGRADE_BY_KEY } from '../game/upgrades.js';
-import { rollShopItems, SHOP_REFRESH_COST } from '../game/shop.js';
+import { rollShopItems, SHOP_REFRESH_COST, ITEM_SLOTS } from '../game/shop.js';
 import {
   ITEM_POOL,
   ITEM_BY_KEY,
@@ -74,6 +74,10 @@ export class GameScene extends Phaser.Scene {
     this.pickups = [];
     this.cooldowns = [];
     this.pending = [];
+    // Level-ups are banked while the wave runs and handed out once it is over,
+    // so a card never stops a fight halfway through.
+    this.levelsQueued = 0;
+    this.pendingWaveStart = false;
     this.shopItems = [];
     this.pendingBuff = null;
     this.activeBuff = null;
@@ -327,16 +331,25 @@ export class GameScene extends Phaser.Scene {
   // ------------------------------------------------------------- controls
 
   buildControls() {
-    // Combat HUD is deliberately bare: one dash button and no side panels, so
-    // the field is clear. Weapons and items are shown in the shop screen.
+    // Combat HUD is deliberately bare: a dash and a blink in the bottom-right
+    // corner and no side panels, so the field is clear. Weapons and items are
+    // shown in the shop screen.
     this.dashGfx = this.add.graphics().setDepth(20);
     this.dashIcon = this.add
       .image(0, 0, 'icon-chevrons-right')
       .setDepth(20)
       .setTint(0xffd9a0);
+
+    this.skillGfx = this.add.graphics().setDepth(20);
+    this.skillIcon = this.add
+      .image(0, 0, 'icon-zap')
+      .setDepth(20)
+      .setTint(0xa8f0ff);
+
     this.slotPositions = [];
 
     this.drawDash();
+    this.drawSkill();
 
     this.input.on('pointerdown', this.onPointerDown, this);
     this.input.on('pointermove', this.onPointerMove, this);
@@ -386,6 +399,45 @@ export class GameScene extends Phaser.Scene {
     return Math.max(0, (this.dashReadyAt - this.time.now) / DASH_COOLDOWN);
   }
 
+  /// The blink, drawn next to the dash in the same materials so the pair reads
+  /// as part of the arena rather than a browser widget.
+  drawSkill() {
+    const skill = this.layout.skill;
+    if (!skill || !this.skillGfx) return;
+
+    const r = skill.radius;
+    const ratio = this.blinkCoolRatio();
+    const g = this.skillGfx;
+
+    g.clear();
+    g.fillStyle(0x121a26, 0.95);
+    g.fillCircle(skill.x, skill.y, r);
+    g.lineStyle(2, 0xa8f0ff, ratio > 0 ? 0.28 : 0.85);
+    g.strokeCircle(skill.x, skill.y, r);
+
+    if (ratio > 0) {
+      g.lineStyle(4, 0xa8f0ff, 0.5);
+      g.beginPath();
+      g.arc(
+        skill.x,
+        skill.y,
+        r - 4,
+        -Math.PI / 2,
+        -Math.PI / 2 + Math.PI * 2 * ratio,
+        false
+      );
+      g.strokePath();
+    }
+
+    this.skillIcon.setPosition(skill.x, skill.y);
+    this.skillIcon.setDisplaySize(r * 1.05, r * 1.05);
+    this.skillIcon.setAlpha(ratio > 0 ? 0.35 : 1);
+  }
+
+  blinkCoolRatio() {
+    return Math.max(0, (this.blinkReadyAt - this.time.now) / BLINK_COOLDOWN);
+  }
+
   onPointerDown(pointer) {
     if (!this.running || this.pausedByUser || this.shopOpen || this.choiceOpen)
       return;
@@ -396,6 +448,16 @@ export class GameScene extends Phaser.Scene {
       dash.radius * 1.25
     ) {
       this.tryDash();
+      return;
+    }
+
+    const skill = this.layout.skill;
+    if (
+      skill &&
+      Phaser.Math.Distance.Between(pointer.x, pointer.y, skill.x, skill.y) <
+        skill.radius * 1.25
+    ) {
+      this.tryBlink();
       return;
     }
 
@@ -481,16 +543,16 @@ export class GameScene extends Phaser.Scene {
 
     const fromX = this.player.x;
     const fromY = this.player.y;
-    const play = this.layout.play;
+    const margin = 20;
     const toX = Phaser.Math.Clamp(
       fromX + dir.x * 150,
-      play.left + 20,
-      play.right - 20
+      field.left + margin,
+      field.right - margin
     );
     const toY = Phaser.Math.Clamp(
       fromY + dir.y * 150,
-      play.top + 20,
-      play.bottom - 20
+      (this.safeTop || field.top) + margin,
+      field.bottom - margin
     );
 
     this.blinkReadyAt = this.time.now + BLINK_COOLDOWN;
@@ -558,7 +620,7 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => ring.destroy()
     });
 
-    haptic('dash');
+    haptic('blink');
     Sfx.blink();
   }
 
@@ -629,13 +691,35 @@ export class GameScene extends Phaser.Scene {
       .setDepth(-4);
     this.topBarItems.push(this.hpText);
 
+    // The purse sits at the right of the second row, where it is always in
+    // sight: what a wave pays is only useful if it is seen arriving. The line
+    // reads 34/50 once 生锈的硬币 locks the cap.
+    const coinW = Math.round(56 * s);
+    const coinSize = Math.max(10, Math.round(13 * s));
+    const xpW = Math.max(24, barW - coinW - 10);
+
+    this.coinIcon = this.add
+      .image(barX + barW - coinW, xpY, 'coin')
+      .setDisplaySize(coinSize, coinSize)
+      .setDepth(-5);
+    this.coinText = this.add
+      .text(barX + barW, xpY, '0', {
+        fontFamily: FONT,
+        fontSize: `${Math.round(12 * s)}px`,
+        color: COLORS.goldHex,
+        fontStyle: 'bold'
+      })
+      .setOrigin(1, 0.5)
+      .setDepth(-4);
+    this.topBarItems.push(this.coinIcon, this.coinText);
+
     // The experience bar: one thin line tucked under the health bar.
     this.xpBack = this.add
-      .rectangle(barX, xpY, barW, xpH, 0x1d2a3a)
+      .rectangle(barX, xpY, xpW, xpH, 0x1d2a3a)
       .setOrigin(0, 0.5)
       .setDepth(-5);
     this.xpFill = this.add
-      .rectangle(barX, xpY, barW, xpH, 0x39e6cd)
+      .rectangle(barX, xpY, xpW, xpH, 0x39e6cd)
       .setOrigin(0, 0.5)
       .setDepth(-5);
     this.topBarItems.push(this.xpBack, this.xpFill);
@@ -710,6 +794,15 @@ export class GameScene extends Phaser.Scene {
       Math.max(0.0001, Phaser.Math.Clamp(s.xp / s.xpNext, 0, 1)),
       1
     );
+
+    if (this.coinText) {
+      const coins = Math.floor(s.coins);
+      this.coinText.setText(
+        Number.isFinite(s.coinCap)
+          ? `${Math.min(coins, s.coinCap)}/${s.coinCap}`
+          : String(coins)
+      );
+    }
     this.waveText.setText(
       isEndlessWave(s.wave) ? `无尽波 ${s.wave}` : `第 ${s.wave} 波`
     );
@@ -760,6 +853,7 @@ export class GameScene extends Phaser.Scene {
     this.updateBlackholes(delta);
 
     this.drawDash();
+    this.drawSkill();
     this.updateTopBar();
 
     this.shadow.setPosition(this.player.x, this.player.y + 15);
@@ -1036,7 +1130,7 @@ export class GameScene extends Phaser.Scene {
 
     if (now < chargeUntil) {
       const angle = boss.getData('chargeAngle') || 0;
-      boss.body.velocity.set(Math.cos(angle) * 560, Math.sin(angle) * 560);
+      boss.body.velocity.set(Math.cos(angle) * 640, Math.sin(angle) * 640);
       return;
     }
 
@@ -1059,7 +1153,7 @@ export class GameScene extends Phaser.Scene {
       boss.setData('chargeUntil', now + 520 + 560);
       boss.setData('stunUntil', now + 520 + 560 + 700);
       boss.setData('chargeAngle', angle);
-      boss.setData('actionTimer', 2200);
+      boss.setData('actionTimer', 1500);
 
       boss.setTint(0xff9db0);
       const sprite = boss;
@@ -1070,7 +1164,7 @@ export class GameScene extends Phaser.Scene {
     } else {
       boss.setData('nextAction', 'charge');
       boss.setData('windupUntil', now + 420);
-      boss.setData('actionTimer', 2400);
+      boss.setData('actionTimer', 1700);
 
       const sprite = boss;
       this.time.delayedCall(430, () => {
@@ -1086,7 +1180,9 @@ export class GameScene extends Phaser.Scene {
       this.player.x,
       this.player.y
     );
-    const count = 12;
+    // A wider ring: the gaps between orbs are where a player lives, so sixteen
+    // of them turn a boss barrage into a real dodge.
+    const count = 16;
 
     for (let i = 0; i < count; i++) {
       this.spawnOrb(
@@ -2584,7 +2680,13 @@ export class GameScene extends Phaser.Scene {
       // The cost is rebuilt from the wave, not compounded, so levelling stays at
       // roughly one per wave no matter how long the run goes.
       s.xpNext = xpForLevel(s.wave);
-      this.requestChoice('level');
+
+      // The card is banked, not shown: a level-up never interrupts a fight. It
+      // is handed out when the wave is over, on the way back into the arena.
+      this.levelsQueued = (this.levelsQueued || 0) + 1;
+      haptic('level_up');
+      Sfx.levelUp();
+      if (this.player) this.notify('升级', this.player.x, this.player.y - 10);
     }
   }
 
@@ -2886,9 +2988,12 @@ export class GameScene extends Phaser.Scene {
     // enemies.js so the late run cannot quietly drift out of control.
     const scale = waveScaling(wave);
 
+    // The boss is a checkpoint rather than one more body: it outgrows the horde
+    // it leads, so every fifth wave is a real wall.
+    const bossBoost = def.behaviour === 'boss' ? 1.3 : 1;
     const hp = Math.max(
       1,
-      Math.round(def.hp * scale.hp * this.difficulty.hp)
+      Math.round(def.hp * scale.hp * bossBoost * this.difficulty.hp)
     );
     enemy.setData('hp', hp);
     enemy.setData('maxHp', hp);
@@ -2898,9 +3003,11 @@ export class GameScene extends Phaser.Scene {
     const jitter =
       def.behaviour === 'boss' ? 1 : Phaser.Math.FloatBetween(0.85, 1.25);
     enemy.setData('speed', def.speed * scale.speed * jitter);
+    // A boss hits harder than the tier it stands in.
+    const hitBoost = def.behaviour === 'boss' ? 1.15 : 1;
     enemy.setData(
       'damage',
-      Math.round(def.damage * scale.damage * this.difficulty.damage)
+      Math.round(def.damage * scale.damage * hitBoost * this.difficulty.damage)
     );
 
     // Steering: how far ahead of the player this one aims, plus a slow weave so
@@ -2990,11 +3097,25 @@ export class GameScene extends Phaser.Scene {
     return true;
   }
 
+  /// Presents one banked level-up card, if any is waiting. Returns true when a
+  /// card was opened, in which case the caller must leave the run frozen.
+  flushLevelUps() {
+    if (!this.running) return false;
+    if (this.levelsQueued <= 0) return false;
+
+    this.levelsQueued -= 1;
+    return this.requestChoice('level');
+  }
+
   finishChoice() {
     this.choiceOpen = false;
 
     // Whatever happens here, the run must not be left paused with no UI.
     try {
+      // Cards for everything banked during the wave come first, one after
+      // another, then any older request.
+      if (this.flushLevelUps()) return;
+
       if (this.pending.length > 0) {
         const kind = this.pending.shift();
         if (this.requestChoice(kind)) return;
@@ -3004,6 +3125,14 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (!this.running) return;
+
+    // The last banked card was picked after the shop, so the next wave starts
+    // now that the player has spent their upgrades.
+    if (this.pendingWaveStart) {
+      this.pendingWaveStart = false;
+      this.startNextWave();
+    }
+
     this.scene.resume();
   }
 
@@ -3054,7 +3183,7 @@ export class GameScene extends Phaser.Scene {
     duckMusic(0.45);
     this.buildShopStock();
 
-    // A shelf of four or more counts as seeing four cards at once.
+    // A full shelf counts as seeing several cards at once.
     this.announceAchievements(
       recordAchievement({ maxCards: this.shopItems.length })
     );
@@ -3071,11 +3200,12 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  /// Rolls the shelf, keeping anything the player has pinned so a great early
-  /// item can be saved up for across waves.
+  /// The shelf is two rows: ITEM_SLOTS trinkets on top and the weapon offers
+  /// under them, which is the order the shop draws. Pinned trinkets keep the
+  /// top of the shelf, so a good find can be saved up for.
   buildShopStock() {
     const kept = (this.shopItems || []).filter(
-      (item) => item.saved && !item.sold
+      (item) => item.saved && !item.sold && item.kind === 'item'
     );
     const fresh = rollShopItems(
       this.state.wave,
@@ -3083,15 +3213,12 @@ export class GameScene extends Phaser.Scene {
       this.state.weapons
     );
 
-    const items = [];
-    for (const item of kept) items.push(item);
-    for (const item of fresh) {
-      if (items.length >= 5) break;
-      items.push(item);
-    }
+    const items = fresh.filter((item) => item.kind !== 'weapon');
+    const weapons = fresh.filter((item) => item.kind === 'weapon');
+    const roomForItems = Math.max(0, ITEM_SLOTS - kept.length);
 
-    this.shopItems = items;
-    return items;
+    this.shopItems = kept.concat(items.slice(0, roomForItems), weapons);
+    return this.shopItems;
   }
 
   /// Pins or unpins a shop item so a refresh leaves it alone.
@@ -3183,8 +3310,6 @@ export class GameScene extends Phaser.Scene {
     return true;
   }
 
-  /// Leaving the shop opens the usual wave-clear card, and picking that starts
-  /// the next wave.
   /// Paid re-roll of the shop's stock. A bad roll should never be a dead end.
   refreshShopItems() {
     if (!this.shopOpen) return false;
@@ -3195,15 +3320,21 @@ export class GameScene extends Phaser.Scene {
     return true;
   }
 
-  /// Leaving the shop opens the usual wave-clear card, and picking that starts
-  /// the next wave.
+  /// Leaving the shop hands out the upgrades earned during the wave — after the
+  /// fight, never inside it — and the next wave starts once the last card is
+  /// picked. With nothing banked the run simply rolls on.
   leaveShop() {
     this.shopOpen = false;
     duckMusic(1);
 
-    // No wave-clear card any more: the next wave starts as soon as the shop
-    // closes, so the run never stops for a second reward screen.
     if (!this.running) return;
+
+    if (this.levelsQueued > 0) {
+      this.pendingWaveStart = true;
+      if (this.flushLevelUps()) return;
+      this.pendingWaveStart = false;
+    }
+
     this.startNextWave();
     this.scene.resume();
   }
@@ -3587,6 +3718,31 @@ export class GameScene extends Phaser.Scene {
     this.cooldowns = [];
     this.drawWeaponSlots();
     this.flashSlot(index);
+    return true;
+  }
+
+  /// What it costs to push one carried gun up a rarity tier from the shop.
+  upgradeWeaponCost(index) {
+    const slot = this.state.weapons[index];
+    if (!slot) return 0;
+    if (!nextRarity(slot.rarity || 'common')) return 0;
+    return mergeCost(slot.rarity || 'common');
+  }
+
+  /// Pays for the tier and raises it: the shop's own way of upgrading a gun the
+  /// player already carries, without needing a duplicate to fuse.
+  upgradeWeapon(index) {
+    const slot = this.state.weapons[index];
+    if (!slot) return false;
+    if (!nextRarity(slot.rarity || 'common')) return false;
+
+    const cost = this.upgradeWeaponCost(index);
+    if (this.state.coins < cost) return false;
+    if (!this.mergeWeaponRarity(index)) return false;
+
+    this.state.coins -= cost;
+    Sfx.levelUp();
+    haptic('level_up');
     return true;
   }
 
@@ -4020,6 +4176,7 @@ export class GameScene extends Phaser.Scene {
     );
 
     this.drawDash();
+    this.drawSkill();
     this.buildTopBar();
   }
 

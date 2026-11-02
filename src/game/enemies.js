@@ -122,9 +122,9 @@ export const ENEMY_TYPES = {
   },
   boss: {
     texture: 'boss',
-    hp: 300,
-    speed: 62,
-    damage: 34,
+    hp: 430,
+    speed: 72,
+    damage: 42,
     radius: 40,
     offset: 20,
     xp: 6,
@@ -136,7 +136,7 @@ export const ENEMY_TYPES = {
     behaviour: 'boss',
     aura: 190,
     auraColor: 0xff3d6e,
-    shotDamage: 16
+    shotDamage: 20
   }
 };
 

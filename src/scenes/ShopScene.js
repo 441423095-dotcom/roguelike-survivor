@@ -109,7 +109,7 @@ export class ShopScene extends Phaser.Scene {
       .text(
         W / 2,
         titleY + 24 * s,
-        `第 ${this.wave} 波结束 · 只卖奇怪道具，不买也能直接跳过`,
+        `第 ${this.wave} 波结束 · 上面是道具，下面是武器`,
         {
           fontFamily: FONT,
           fontSize: `${Math.round(13 * s)}px`,
@@ -149,9 +149,10 @@ export class ShopScene extends Phaser.Scene {
       .setOrigin(0, 0.5)
       .setDepth(3);
 
-    // Cards, vertically centred between the header and the continue button.
+    // Cards, in two shelves between the header and the continue button.
     const cardW = Math.min(W - 32, 430 * s);
     const gap = Math.round(8 * s);
+    const labelH = Math.round(17 * s);
 
     // A mergeable pair gets its own strip above the cards.
     const pairs = this.mergePairs();
@@ -170,18 +171,53 @@ export class ShopScene extends Phaser.Scene {
 
     const areaTop = purseY + 22 * s + (bannerH > 0 ? bannerH + 8 * s : 0);
     const areaBottom = H - 156 * s;
-    const count = Math.max(1, items.length);
-    const avail = Math.max(120, areaBottom - areaTop);
-    const cardH = Math.max(
-      58,
-      Math.min(100 * s, (avail - gap * (count - 1)) / count)
-    );
-    const groupH = cardH * count + gap * (count - 1);
-    const startY = areaTop + Math.max(0, (avail - groupH) / 2);
 
-    items.forEach((item, index) => {
-      const cy = startY + index * (cardH + gap) + cardH / 2;
-      this.buildCard(item, index, W / 2, cy, cardW, cardH, s);
+    // Trinkets on the top shelf, weapons under them, each keeping its real
+    // index into the run's stock so a tap still buys the card that was shown.
+    const entries = items.map((item, index) => ({ item, index }));
+    const trinkets = entries.filter((entry) => entry.item.kind !== 'weapon');
+    const guns = entries.filter((entry) => entry.item.kind === 'weapon');
+
+    const shelves = [];
+    if (trinkets.length > 0) {
+      shelves.push({ label: '道具 · 被动 / 主动', cards: trinkets });
+    }
+    if (guns.length > 0) {
+      shelves.push({ label: '武器 · 能换也能合成', cards: guns });
+    }
+
+    // Each shelf gets a share of the space in proportion to how many cards it
+    // holds, so the two weapons are as easy to hit as the three trinkets.
+    const weights = shelves.map((shelf) => Math.max(1, shelf.cards.length));
+    const weightTotal = weights.reduce((a, b) => a + b, 0) || 1;
+    const avail = Math.max(160, areaBottom - areaTop);
+    let y = areaTop;
+
+    shelves.forEach((shelf, shelfIndex) => {
+      const count = Math.max(1, shelf.cards.length);
+      const share = (avail * weights[shelfIndex]) / weightTotal;
+      const cardH = Math.max(
+        56,
+        Math.min(104 * s, (share - labelH - gap * count) / count)
+      );
+
+      this.add
+        .text(W / 2 - cardW / 2 + 4 * s, y + labelH / 2, shelf.label, {
+          fontFamily: FONT,
+          fontSize: `${Math.round(11 * s)}px`,
+          color: COLORS.dim,
+          fontStyle: 'bold'
+        })
+        .setOrigin(0, 0.5)
+        .setDepth(2);
+      y += labelH;
+
+      shelf.cards.forEach((entry, index) => {
+        const cy = y + index * (cardH + gap) + cardH / 2;
+        this.buildCard(entry.item, entry.index, W / 2, cy, cardW, cardH, s);
+      });
+
+      y += cardH * count + gap * (count - 1) + gap;
     });
 
     // What the run already carries, right where the thumb already is.
@@ -368,11 +404,17 @@ export class ShopScene extends Phaser.Scene {
     const slot = run.state.weapons[index];
     if (!slot) return;
 
+    const def = weaponDef(slot);
+    const next = nextRarity(slot.rarity || 'common');
+
     this.openSell({
       kind: 'weapon',
       index,
-      name: weaponName(weaponDef(slot), slot.rarity),
-      price: run.weaponSellPrice(slot)
+      name: weaponName(def, slot.rarity),
+      price: run.weaponSellPrice(slot),
+      // A gun can be pushed up a tier for gold, or sold back for part of it.
+      upgradeCost: run.upgradeWeaponCost ? run.upgradeWeaponCost(index) : 0,
+      upgradeName: next && def ? weaponName(def, next.key) : ''
     });
   }
 
@@ -408,7 +450,8 @@ export class ShopScene extends Phaser.Scene {
     this.rebuild();
   }
 
-  /// The small sell dialog for one owned weapon or item.
+  /// The small sheet for one owned weapon or item: pay to push a gun up a
+  /// rarity tier, sell it back for coins, or keep it. Nothing is automatic.
   openSell(target) {
     this.sellTarget = target;
 
@@ -416,8 +459,8 @@ export class ShopScene extends Phaser.Scene {
     const H = this.scale.gameSize.height;
     const s = computeLayout(W, H).uiScale;
 
-    const panelW = Math.min(W - 60, 300 * s);
-    const panelH = Math.round(160 * s);
+    const panelW = Math.min(W - 60, 320 * s);
+    const panelH = Math.round(186 * s);
     const cx = W / 2;
     const cy = H / 2;
 
@@ -434,7 +477,7 @@ export class ShopScene extends Phaser.Scene {
     panel.strokeRoundedRect(cx - panelW / 2, cy - panelH / 2, panelW, panelH, 16);
 
     this.add
-      .text(cx, cy - panelH / 2 + 26 * s, `出售 ${target.name}？`, {
+      .text(cx, cy - panelH / 2 + 26 * s, target.name, {
         fontFamily: FONT,
         fontSize: `${Math.round(16 * s)}px`,
         color: COLORS.ink,
@@ -443,8 +486,26 @@ export class ShopScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(22);
 
+    const canUpgrade = target.kind === 'weapon' && target.upgradeCost > 0;
+
     this.add
-      .text(cx, cy - panelH / 2 + 50 * s, `返还 ${target.price} 金币`, {
+      .text(
+        cx,
+        cy - panelH / 2 + 54 * s,
+        canUpgrade
+          ? `升级为 ${target.upgradeName}：${target.upgradeCost} 金币`
+          : '卖掉会让它彻底离开这一局',
+        {
+          fontFamily: FONT,
+          fontSize: `${Math.round(13 * s)}px`,
+          color: canUpgrade ? COLORS.goldHex : COLORS.dim
+        }
+      )
+      .setOrigin(0.5)
+      .setDepth(22);
+
+    this.add
+      .text(cx, cy - panelH / 2 + 78 * s, `出售返还 ${target.price} 金币`, {
         fontFamily: FONT,
         fontSize: `${Math.round(13 * s)}px`,
         color: COLORS.goldHex
@@ -452,28 +513,42 @@ export class ShopScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(22);
 
-    makeButton(this, {
-      x: cx - panelW / 4,
-      y: cy + panelH / 2 - 34 * s,
-      width: panelW / 2 - 16 * s,
-      height: Math.round(36 * s),
-      label: '出售',
-      fontSize: Math.round(14 * s),
+    // Upgrade, sell or keep it — the choice is always the player's.
+    const actions = [];
+    if (canUpgrade) {
+      actions.push({
+        label: `升级 ${target.upgradeCost}`,
+        accent: 0xffd166,
+        onPress: () => this.confirmUpgrade()
+      });
+    }
+    actions.push({
+      label: `出售 ${target.price}`,
       accent: COLORS.gold,
-      depth: 22,
       onPress: () => this.confirmSell()
     });
-
-    makeButton(this, {
-      x: cx + panelW / 4,
-      y: cy + panelH / 2 - 34 * s,
-      width: panelW / 2 - 16 * s,
-      height: Math.round(36 * s),
+    actions.push({
       label: '取消',
-      fontSize: Math.round(14 * s),
       accent: 0x2bd3c4,
-      depth: 22,
       onPress: () => this.closeSell()
+    });
+
+    const buttonY = cy + panelH / 2 - 34 * s;
+    const sideGap = 10 * s;
+    const buttonW = (panelW - sideGap * (actions.length + 1)) / actions.length;
+
+    actions.forEach((action, index) => {
+      makeButton(this, {
+        x: cx - panelW / 2 + sideGap * (index + 1) + buttonW * (index + 0.5),
+        y: buttonY,
+        width: buttonW,
+        height: Math.round(36 * s),
+        label: action.label,
+        fontSize: Math.round(12 * s),
+        accent: action.accent,
+        depth: 22,
+        onPress: action.onPress
+      });
     });
 
     sharpenText(this);
@@ -500,6 +575,28 @@ export class ShopScene extends Phaser.Scene {
     if (!refund) {
       haptic('tick');
       this.closeSell();
+      return;
+    }
+
+    haptic('impact');
+    Sfx.buy();
+    this.sellTarget = null;
+    this.rebuild();
+  }
+
+  /// Pays to raise one carried gun's rarity a tier. Nothing is charged unless
+  /// the upgrade really happened.
+  confirmUpgrade() {
+    const target = this.sellTarget;
+    const run = this.run();
+
+    if (!target || !run || target.kind !== 'weapon') {
+      this.closeSell();
+      return;
+    }
+
+    if (!run.upgradeWeapon || !run.upgradeWeapon(target.index)) {
+      haptic('tick');
       return;
     }
 
@@ -637,11 +734,16 @@ export class ShopScene extends Phaser.Scene {
       .setVisible(false);
 
     // A proper tap target for pinning an item: big enough to hit with a thumb.
-    const lockG = this.add.graphics().setDepth(4);
+    // Weapons are re-rolled every visit, so only trinkets are worth pinning.
+    const lockG = this.add
+      .graphics()
+      .setDepth(4)
+      .setVisible(item.kind !== 'weapon');
     const lockIcon = this.add
       .image(lockX, lockY, 'icon-lock')
       .setDisplaySize(16 * s, 16 * s)
-      .setDepth(5);
+      .setDepth(5)
+      .setVisible(item.kind !== 'weapon');
 
     const iconSize = Math.min(h * 0.42, 36 * s);
     const iconX = cx - w / 2 + 20 * s + iconSize / 2;
@@ -703,7 +805,7 @@ export class ShopScene extends Phaser.Scene {
 
     const paintLock = () => {
       const saved = !!item.saved;
-      const usable = !item.sold;
+      const usable = !item.sold && item.kind !== 'weapon';
 
       lockG.clear();
       lockG.setVisible(usable);
@@ -819,6 +921,10 @@ export class ShopScene extends Phaser.Scene {
   toggleLock(index) {
     const run = this.run();
     if (!run || !run.toggleShopLock) return;
+
+    // Only trinkets survive a refresh, so a weapon card cannot be pinned.
+    const item = (this.stock() || [])[index];
+    if (item && item.kind === 'weapon') return;
 
     run.toggleShopLock(index);
     haptic('tick');

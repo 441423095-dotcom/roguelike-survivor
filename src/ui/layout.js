@@ -1,7 +1,7 @@
 // The panel can be any shape, so every scene derives its geometry from the
 // current game size instead of assuming one. The arena is the whole screen now:
 // movement is a floating stick wherever the thumb lands, and the only fixed
-// control is the dash button tucked into the bottom-right corner.
+// controls are the dash and the blink, clustered in the bottom-right corner.
 
 export function computeLayout(width, height) {
   // Text has to read comfortably on a phone, so the whole UI is built a little
@@ -13,6 +13,11 @@ export function computeLayout(width, height) {
   const dashRadius = Phaser.Math.Clamp(height * 0.088, 34, 58);
   const inset = dashRadius + 26;
   const dashY = height - inset - 8;
+
+  // The blink sits just left of the dash, so both live in one thumb-sized
+  // cluster in the corner instead of a row across the screen.
+  const blinkRadius = Math.round(dashRadius * 0.82);
+  const blinkX = width - inset - dashRadius - blinkRadius - 12;
 
   return {
     width,
@@ -34,6 +39,11 @@ export function computeLayout(width, height) {
       x: width - inset,
       y: dashY,
       radius: dashRadius
+    },
+    skill: {
+      x: blinkX,
+      y: dashY,
+      radius: blinkRadius
     }
   };
 }

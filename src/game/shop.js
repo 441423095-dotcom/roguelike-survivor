@@ -1,15 +1,15 @@
-// What the between-wave shop stocks: a shelf of odd items rolled from the item
-// pool plus one weapon card drawn at one of the five rarity tiers, and a paid
-// refresh. Weapons no longer drop in the arena — they are bought here.
+// What the between-wave shop stocks: three odd trinkets on the top shelf and
+// two weapon cards under them, plus a paid refresh. Weapons no longer drop in
+// the arena — they are bought here.
 
 import { ITEM_POOL, itemPrice } from './passives.js';
 import { WEAPONS, WEAPON_SLOTS } from './weapons.js';
 import { rollWeaponRarity, rarityDesc, weaponName, weaponPrice } from './rarities.js';
 
 export const SHOP_REFRESH_COST = 5;
-export const SHOP_SLOTS = 4;
-
-const ITEM_SLOTS = 3;
+export const ITEM_SLOTS = 3;
+export const WEAPON_OFFERS = 2;
+export const SHOP_SLOTS = ITEM_SLOTS + WEAPON_OFFERS;
 
 function rollItems(wave, stacks, count) {
   const available = ITEM_POOL.filter(
@@ -99,12 +99,19 @@ function rollWeapon(wave, loadout) {
 }
 
 /// Rolls a shelf for this wave. `owned` is the run's item table, `loadout` the
-/// carried weapons, so nothing at its cap or impossible to take is offered.
+/// carried weapons, so nothing at its cap or impossible to take is offered. The
+/// trinkets come first and the weapons after them, which is the order the shop
+/// draws them in: items on the top shelf, weapons on the bottom one.
 export function rollShopItems(wave, owned, loadout) {
   const stacks = owned || {};
-  const weapon = rollWeapon(wave, loadout);
-  const items = rollItems(wave, stacks, weapon ? ITEM_SLOTS : SHOP_SLOTS);
 
-  if (weapon) items.push(weapon);
-  return items;
+  const weapons = [];
+  for (let i = 0; i < WEAPON_OFFERS; i++) {
+    const weapon = rollWeapon(wave, loadout);
+    if (weapon) weapons.push(weapon);
+  }
+
+  const items = rollItems(wave, stacks, weapons.length > 0 ? ITEM_SLOTS : SHOP_SLOTS);
+
+  return items.concat(weapons);
 }
