@@ -25,9 +25,19 @@ export function viewSize(source) {
   return { width: width / DPR, height: height / DPR };
 }
 
-/// Without this the scene would draw its CSS-sized layout into a corner of the
-/// device-pixel canvas. Every scene calls it once, at the top of create().
+/// Every camera has to zoom by the density, or the scene would draw its CSS-sized
+/// layout into a corner of the device-pixel canvas.
+///
+/// The camera is as large as the canvas (device pixels), and Phaser centres its
+/// world window on `scroll + halfSize`, so leaving the scroll at zero would put
+/// the visible world at the canvas centre instead of the scene's top-left. Every
+/// scene calls this once, at the top of create(), and again after a resize.
 export function applyCameraZoom(scene) {
   if (!scene || !scene.cameras || !scene.cameras.main) return;
-  scene.cameras.main.setZoom(DPR);
+
+  const cam = scene.cameras.main;
+  const view = viewSize(scene);
+
+  cam.setZoom(DPR);
+  cam.centerOn(view.width / 2, view.height / 2);
 }

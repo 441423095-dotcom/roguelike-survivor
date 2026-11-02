@@ -1,7 +1,7 @@
 // Entry point: the Phaser game configuration and nothing else. Gameplay lives
 // in scenes under src/scenes/.
 
-import { DPR } from './ui/view.js';
+import { DPR, applyCameraZoom } from './ui/view.js';
 import { BootScene } from './scenes/BootScene.js';
 import { TitleScene } from './scenes/TitleScene.js';
 import { CharacterScene } from './scenes/CharacterScene.js';
@@ -109,9 +109,15 @@ function startGame() {
 
     // A rotation, or a browser toolbar sliding away, changes the panel size and
     // Phaser in NONE mode leaves the canvas untouched, so the canvas is refitted
-    // here. iOS reports the old size for a moment after a rotation, so the fit
-    // runs once more just after.
-    const refit = () => fitStage(game);
+    // here and the cameras are re-centred on the new CSS-sized world. iOS reports
+    // the old size for a moment after a rotation, so the fit runs once more just
+    // after.
+    const refit = () => {
+      fitStage(game);
+
+      const scenes = game.scene.getScenes(true);
+      for (let i = 0; i < scenes.length; i++) applyCameraZoom(scenes[i]);
+    };
     window.addEventListener('resize', () => {
       refit();
       setTimeout(refit, 240);
