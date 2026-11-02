@@ -104,8 +104,10 @@ export class GameScene extends Phaser.Scene {
     this.facing = 0;
 
     this.joyDir = new Phaser.Math.Vector2(0, 0);
-    this.joyTravel = 0;
-    this.joyOrigin = null;
+    // Where the grab started, relative to the character: plain numbers, so the
+    // per-frame follow never allocates anything.
+    this.dragOffsetX = 0;
+    this.dragOffsetY = 0;
     this.joyPointer = null;
     this.lastDir = new Phaser.Math.Vector2(1, 0);
     this.dashDir = new Phaser.Math.Vector2(1, 0);
@@ -210,7 +212,6 @@ export class GameScene extends Phaser.Scene {
   onShutdown() {
     this.scale.off('resize', this.onResize, this);
     this.input.off('pointerdown', this.onPointerDown, this);
-    this.input.off('pointermove', this.onPointerMove, this);
     this.input.off('pointerup', this.onPointerUp, this);
     this.input.off('pointerupoutside', this.onPointerUp, this);
     if (this.spawnTimer) {
@@ -357,7 +358,6 @@ export class GameScene extends Phaser.Scene {
     this.drawFlashButton();
 
     this.input.on('pointerdown', this.onPointerDown, this);
-    this.input.on('pointermove', this.onPointerMove, this);
     this.input.on('pointerup', this.onPointerUp, this);
     this.input.on('pointerupoutside', this.onPointerUp, this);
   }
@@ -367,6 +367,7 @@ export class GameScene extends Phaser.Scene {
   drawJoystick() {
     // Intentionally draws nothing.
   }
+
 
   /// The flash button: one lightning bolt in the corner. Half-transparent at
   /// rest so it never covers the fight, solid and a touch smaller while a thumb
@@ -437,15 +438,11 @@ export class GameScene extends Phaser.Scene {
 
     if (this.joyPointer !== null) return;
 
-    // Anywhere on the screen: the stick appears under the thumb.
+    // Grab anywhere: remember where the character sits relative to the finger
+    // and let the frame loop drag it there directly.
     this.joyPointer = pointer;
-    this.joyOrigin = { x: pointer.x, y: pointer.y };
-    this.joyTravel = 0;
-    this.drawJoystick();
-  }
-
-  onPointerMove(pointer) {
-    if (pointer === this.joyPointer) this.updateJoystick(pointer);
+    this.dragOffsetX = this.player.x - pointer.x;
+    this.dragOffsetY = this.player.y - pointer.y;
   }
 
   onPointerUp(pointer) {
@@ -458,28 +455,12 @@ export class GameScene extends Phaser.Scene {
     if (pointer === this.joyPointer) this.releaseJoystick();
   }
 
-  updateJoystick(pointer) {
-    if (!this.joyOrigin) return;
-    const dx = pointer.x - this.joyOrigin.x;
-    const dy = pointer.y - this.joyOrigin.y;
-    const len = Math.hypot(dx, dy);
-
-    if (len < 8) {
-      this.joyDir.set(0, 0);
-      this.joyTravel = 0;
-    } else {
-      this.joyDir.set(dx / len, dy / len);
-      this.joyTravel = Math.min(len, this.layout.joystick.radius);
-    }
-    this.drawJoystick();
-  }
-
   releaseJoystick() {
     this.joyPointer = null;
-    this.joyOrigin = null;
-    this.joyTravel = 0;
+    this.dragOffsetX = 0;
+    this.dragOffsetY = 0;
     this.joyDir.set(0, 0);
-    this.drawJoystick();
+    if (this.player && this.player.body) this.player.body.velocity.set(0, 0);
   }
 
   tryBlink() {
@@ -818,20 +799,60 @@ export class GameScene extends Phaser.Scene {
     this.shadow.setPosition(this.player.x, this.player.y + 15);
   }
 
+  /// Absolute finger follow. The position is read straight off the live pointer
+  /// every frame and the character is put there — no lerp, no velocity ramp, no
+  /// per-move maths and no effects. The only work is one clamp and one sqrt to
+  /// keep `joyDir` up to date for the flash.
   updateMovement(time) {
-    const dashing = time < this.dashUntil;
-    const dir = dashing ? this.dashDir : this.joyDir;
-    const speed = this.state.speed * (dashing ? 3.2 : 1);
+    const p = this.joyPointer;
 
-    if (dir.lengthSq() < 0.0001) {
-      this.player.setVelocity(0, 0);
-    } else {
-      this.player.setVelocity(dir.x * speed, dir.y * speed);
-      if (!dashing) this.lastDir.copy(dir);
+    if (p && p.isDown) {
+      const margin = 16;
+      let nx = p.x + this.dragOffsetX;
+      let ny = p.y + this.dragOffsetY;
+
+      if (nx < margin) nx = margin;
+      else if (nx > this.layout.width - margin) nx = this.layout.width - margin;
+
+      const top = (this.safeTop || 0) + margin;
+      const bottom = this.layout.height - margin;
+      if (ny < top) ny = top;
+      else if (ny > bottom) ny = bottom;
+
+      const dx = nx - this.player.x;
+      const dy = ny - this.player.y;
+      const distSq = dx * dx + dy * dy;
+      const stepCap = this.state.speed * 0.06;
+
+      if (distSq > 0.25) {
+        const inv = 1 / Math.sqrt(distSq);
+        this.joyDir.set(dx * inv, dy * inv);
+        this.lastDir.copy(this.joyDir);
+
+        // Glued to the finger, with one generous cap so a violent swipe cannot
+        // teleport the character across the arena in a single frame.
+        if (distSq > stepCap * stepCap) {
+          nx = this.player.x + dx * inv * stepCap;
+          ny = this.player.y + dy * inv * stepCap;
+        }
+      } else {
+        this.joyDir.set(0, 0);
+        nx = this.player.x;
+        ny = this.player.y;
+      }
+
+      if (nx !== this.player.x || ny !== this.player.y) this.player.setPosition(nx, ny);
+      if (this.player.body) this.player.body.velocity.set(0, 0);
+    } else if (this.joyDir.x !== 0 || this.joyDir.y !== 0) {
+      this.joyDir.set(0, 0);
     }
 
-    const blinking = time < this.invulnUntil;
-    this.player.setAlpha(blinking ? (Math.floor(time / 90) % 2 === 0 ? 0.4 : 1) : 1);
+    // The invulnerability flicker only touches alpha while it is actually on.
+    if (time < this.invulnUntil) {
+      this.player.setAlpha(Math.floor(time / 90) % 2 === 0 ? 0.4 : 1);
+    } else if (this.player.alpha !== 1) {
+      this.player.setAlpha(1);
+    }
   }
 
   updateFiring(delta) {

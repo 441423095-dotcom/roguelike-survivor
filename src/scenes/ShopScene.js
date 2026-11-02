@@ -1010,7 +1010,7 @@ export class ShopScene extends Phaser.Scene {
 
       // The fill is the tier colour dropped almost to black, so a green card is
       // deep green and a gold one is deep brown even before the border is read.
-      const fill = this.darkTint(color, item.sold ? 0.07 : 0.17);
+      const fill = this.darkTint(color, item.sold ? 0.12 : 0.3);
 
       g.clear();
       g.fillStyle(fill, 1);
