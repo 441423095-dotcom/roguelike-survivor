@@ -5,7 +5,7 @@
 import { computeLayout, hudGeometry } from '../ui/layout.js';
 import { COLORS, FONT } from '../ui/style.js';
 import { rollCards, UPGRADE_BY_KEY } from '../game/upgrades.js';
-import { rollShopItems, SHOP_REFRESH_COST, ITEM_SLOTS } from '../game/shop.js';
+import { rollShopItems, SHOP_REFRESH_COST } from '../game/shop.js';
 import {
   ITEM_POOL,
   ITEM_BY_KEY,
@@ -3201,75 +3201,48 @@ export class GameScene extends Phaser.Scene {
   }
 
   /// The shelf is two rows: ITEM_SLOTS trinkets on top and the weapon offers
-  /// under them, which is the order the shop draws. Pinned trinkets keep the
-  /// top of the shelf, so a good find can be saved up for.
+  /// under them, which is the order the shop draws them, so a card's index is
+  /// always the index the shop taps.
   buildShopStock() {
-    const kept = (this.shopItems || []).filter(
-      (item) => item.saved && !item.sold && item.kind === 'item'
-    );
-    const fresh = rollShopItems(
+    this.shopItems = rollShopItems(
       this.state.wave,
       this.items,
       this.state.weapons
     );
 
-    const items = fresh.filter((item) => item.kind !== 'weapon');
-    const weapons = fresh.filter((item) => item.kind === 'weapon');
-    const roomForItems = Math.max(0, ITEM_SLOTS - kept.length);
-
-    this.shopItems = kept.concat(items.slice(0, roomForItems), weapons);
     return this.shopItems;
   }
 
-  /// Pins or unpins a shop item so a refresh leaves it alone.
-  toggleShopLock(index) {
-    const item = this.shopItems[index];
-    if (!item || item.sold) return;
-    item.saved = !item.saved;
-  }
-
+  /// Buying from the shelf. The effect is applied first and the coins are only
+  /// taken once it has landed, so a card that cannot work never costs money.
   buyShopItem(index) {
     const item = this.shopItems[index];
     if (!item || item.sold) return false;
     if (this.state.coins < item.price) return false;
 
-    // An item already at its stack cap is never bought twice, even if a pinned
-    // card from an earlier shelf is still sitting there.
     if (item.kind === 'item') {
-      const def = ITEM_BY_KEY[item.key];
-      if (!def) return false;
-      if ((this.items[item.key] || 0) >= (def.max || 1)) return false;
-    }
-
-    // A weapon needs room: either a duplicate to fuse with, or a free slot.
-    if (item.kind === 'weapon') {
-      const mergeIndex = this.weaponMergeIndex(item.key, item.rarity);
-      if (mergeIndex < 0 && this.state.weapons.length >= WEAPON_SLOTS) {
-        return false;
-      }
-    }
-
-    this.state.coins -= item.price;
-    item.sold = true;
-
-    if (item.kind === 'weapon') {
+      // At its stack cap, or not an item the run knows: nothing to sell.
+      if (!this.addItem(item.key)) return false;
+    } else if (item.kind === 'weapon') {
       const mergeIndex = this.weaponMergeIndex(item.key, item.rarity);
       if (mergeIndex >= 0) this.mergeWeaponRarity(mergeIndex);
-      else this.buyWeapon(item);
-    } else if (item.kind === 'item') {
-      this.addItem(item.key);
+      else if (!this.buyWeapon(item)) return false;
     } else if (item.kind === 'upgrade') {
       const def = UPGRADE_BY_KEY[item.key];
-      if (def) {
-        this.stacks[item.key] = (this.stacks[item.key] || 0) + 1;
-        def.apply(this.state);
-      }
+      if (!def) return false;
+      this.stacks[item.key] = (this.stacks[item.key] || 0) + 1;
+      def.apply(this.state);
     } else if (item.kind === 'heal') {
       this.state.hp = Math.min(this.state.maxHp, this.state.hp + item.heal);
     } else if (item.kind === 'buff') {
       // Banked now, switched on when the next wave starts and gone when it ends.
       this.pendingBuff = { key: item.key, mult: item.mult };
+    } else {
+      return false;
     }
+
+    this.state.coins -= item.price;
+    item.sold = true;
 
     this.clampPlayerStats();
 

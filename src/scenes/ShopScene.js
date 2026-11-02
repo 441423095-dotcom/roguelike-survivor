@@ -10,7 +10,7 @@ import { sharpenText } from '../ui/text.js';
 import { haptic } from '../haptics.js';
 import { Sfx } from '../game/audio.js';
 import { SHOP_REFRESH_COST } from '../game/shop.js';
-import { WEAPONS, weaponDef } from '../game/weapons.js';
+import { WEAPONS, WEAPON_SLOTS, weaponDef } from '../game/weapons.js';
 import { mergeCost, nextRarity, rarityFor, weaponName } from '../game/rarities.js';
 import { ITEM_BY_KEY } from '../game/passives.js';
 
@@ -24,6 +24,8 @@ export class ShopScene extends Phaser.Scene {
     this.items = (data && data.items) || [];
     this.refs = [];
     this.replaceItem = null;
+    this.pickedSlot = null;
+    this.busy = false;
     this.sellTarget = null;
   }
 
@@ -170,7 +172,9 @@ export class ShopScene extends Phaser.Scene {
     }
 
     const areaTop = purseY + 22 * s + (bannerH > 0 ? bannerH + 8 * s : 0);
-    const areaBottom = H - 156 * s;
+    // The gear strip grows taller while a gun is being replaced, so the shelf
+    // above it has to give up that room rather than be drawn over.
+    const areaBottom = H - (this.replaceItem ? 212 : 182) * s;
 
     // Trinkets on the top shelf, weapons under them, each keeping its real
     // index into the run's stock so a tap still buys the card that was shown.
@@ -247,106 +251,205 @@ export class ShopScene extends Phaser.Scene {
     sharpenText(this);
   }
 
-  /// The owned-gear strip: weapons on the left, items on the right. Tapping a
-  /// chip sells it, or picks it as the slot to replace while that mode is on.
+  /// One carried gun as a thumb-sized button: rarity ring, picture, name and
+  /// level. `highlight` paints it as the one picked for a swap.
+  buildWeaponChip(slot, index, opt) {
+    const { cx, cy, width, height, radius, nameSize, levelSize, highlight } =
+      opt;
+    const s = opt.s;
+    const def = weaponDef(slot);
+    const rarity = rarityFor(slot.rarity || 'common');
+
+    const g = this.add.graphics().setDepth(3);
+    g.fillStyle(highlight ? 0x2a2413 : 0x0d1522, 0.96);
+    g.fillRoundedRect(cx - width / 2, cy - height / 2, width, height, 10);
+    g.lineStyle(
+      highlight ? 3 : 2,
+      highlight ? 0xffd166 : rarity.color,
+      highlight ? 1 : 0.6
+    );
+    g.strokeRoundedRect(cx - width / 2, cy - height / 2, width, height, 10);
+
+    const iconY = cy - height / 2 + 5 * s + radius;
+    g.fillStyle(0x05080d, 0.9);
+    g.fillCircle(cx, iconY, radius);
+    g.lineStyle(2, rarity.color, 1);
+    g.strokeCircle(cx, iconY, radius);
+
+    this.add
+      .text(cx, iconY, def ? def.emoji : '🔫', {
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        fontSize: `${Math.round(radius * 1.3)}px`
+      })
+      .setOrigin(0.5)
+      .setDepth(4);
+
+    const nameY = iconY + radius + 3 * s;
+    this.add
+      .text(cx, nameY, weaponName(def, slot.rarity), {
+        fontFamily: FONT,
+        fontSize: `${Math.max(8, Math.round(nameSize))}px`,
+        color: highlight ? COLORS.goldHex : rarity.hex,
+        fontStyle: 'bold'
+      })
+      .setOrigin(0.5, 0)
+      .setDepth(4);
+
+    this.add
+      .text(cx, nameY + nameSize + 2 * s, `Lv${slot.level || 1}`, {
+        fontFamily: FONT,
+        fontSize: `${Math.max(7, Math.round(levelSize))}px`,
+        color: COLORS.dim
+      })
+      .setOrigin(0.5, 0)
+      .setDepth(4);
+
+    const zone = this.add.zone(cx, cy, width, height).setInteractive();
+    zone.on('pointerdown', () => this.tapWeapon(index));
+  }
+
+  /// The replace view: the three guns side by side and named, with the picked
+  /// one lit up in gold. A second tap on that same gun confirms the swap.
+  buildReplaceStrip(run, x, top, barW, barH, s) {
+    const pending = (this.stock() || [])[this.replaceItem.index];
+    const pendingName = pending ? pending.name : '新武器';
+    const price = pending ? pending.price : 0;
+    const affordable = this.coins() >= price;
+    const picked = run.state.weapons[this.pickedSlot];
+
+    const headY = top + 13 * s;
+    const head = picked
+      ? `再点一次「${weaponName(weaponDef(picked), picked.rarity)}」换上`
+      : affordable
+        ? `换下哪一把？${pendingName} · ${price} 金币`
+        : `金币不够：${pendingName} 要 ${price}`;
+
+    this.add
+      .text(x + 10 * s, headY, head, {
+        fontFamily: FONT,
+        fontSize: `${Math.round(11 * s)}px`,
+        color: picked
+          ? COLORS.goldHex
+          : affordable
+            ? COLORS.ink
+            : COLORS.dangerHex,
+        fontStyle: 'bold'
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(3);
+
+    this.add
+      .text(x + barW - 10 * s, headY, '取消', {
+        fontFamily: FONT,
+        fontSize: `${Math.round(11 * s)}px`,
+        color: COLORS.dim
+      })
+      .setOrigin(1, 0.5)
+      .setDepth(3)
+      .setInteractive()
+      .on('pointerdown', () => {
+        this.replaceItem = null;
+        this.pickedSlot = null;
+        haptic('tick');
+        this.scheduleRebuild();
+      });
+
+    const weapons = run.state.weapons.slice(0, 3);
+    const count = Math.max(1, weapons.length);
+    const gap = 8 * s;
+    const usableW = barW - 20 * s;
+    const chipTop = top + 24 * s;
+    const chipH = top + barH - 8 * s - chipTop;
+    const chipW = (usableW - gap * (count - 1)) / count;
+
+    weapons.forEach((slot, index) => {
+      this.buildWeaponChip(slot, index, {
+        cx: x + 10 * s + chipW / 2 + index * (chipW + gap),
+        cy: chipTop + chipH / 2,
+        width: chipW,
+        height: chipH,
+        radius: Math.min(16 * s, chipH * 0.28),
+        nameSize: 10 * s,
+        levelSize: 9 * s,
+        highlight: this.pickedSlot === index,
+        s
+      });
+    });
+  }
+
+  /// The gear strip under the shelves. Normally it lists the carried guns on
+  /// the left and the trinkets on the right; in replace mode it hands the whole
+  /// strip to the guns, named and levelled, so there is never a doubt about
+  /// which one is going out.
   buildOwnedBar(W, H, s) {
     const run = this.run();
     if (!run || !run.state) return;
 
+    const replacing = !!this.replaceItem;
     const barW = Math.min(W - 24, 430 * s);
-    const barH = Math.round(66 * s);
+    const barH = Math.round((replacing ? 104 : 80) * s);
     const x = (W - barW) / 2;
-    const y = H - 118 * s;
+    const y = H - (replacing ? 150 : 138) * s;
 
     const g = this.add.graphics().setDepth(2);
-    g.fillStyle(0x0b1018, 0.92);
+    g.fillStyle(0x0b1018, 0.94);
     g.fillRoundedRect(x, y - barH / 2, barW, barH, 12);
-    g.lineStyle(2, this.replaceItem ? 0xffd166 : 0x2bd3c4, this.replaceItem ? 0.8 : 0.3);
+    g.lineStyle(2, replacing ? 0xffd166 : 0x2bd3c4, replacing ? 0.85 : 0.3);
     g.strokeRoundedRect(x, y - barH / 2, barW, barH, 12);
+
+    if (replacing) {
+      this.buildReplaceStrip(run, x, y - barH / 2, barW, barH, s);
+      return;
+    }
 
     // Split the strip in half with a hairline.
     g.lineStyle(1, 0x2bd3c4, 0.18);
     g.lineBetween(x + barW / 2, y - barH / 2 + 8 * s, x + barW / 2, y + barH / 2 - 8 * s);
 
-    const labelY = y - barH / 2 + 10 * s;
+    const labelY = y - barH / 2 + 12 * s;
 
-    if (this.replaceItem) {
-      const pending = this.stock()[this.replaceItem.index];
-      const pendingName = pending ? pending.name : '新武器';
+    this.add
+      .text(x + 10 * s, labelY, '武器', {
+        fontFamily: FONT,
+        fontSize: `${Math.round(10 * s)}px`,
+        color: COLORS.dim
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(3);
 
-      const hint = this.add
-        .text(x + 10 * s, labelY, `点武器替换：${pendingName}`, {
-          fontFamily: FONT,
-          fontSize: `${Math.round(10 * s)}px`,
-          color: COLORS.goldHex,
-          fontStyle: 'bold'
-        })
-        .setOrigin(0, 0.5)
-        .setDepth(3);
-      hint.setResolution(2);
+    this.add
+      .text(x + barW / 2 + 10 * s, labelY, '道具', {
+        fontFamily: FONT,
+        fontSize: `${Math.round(10 * s)}px`,
+        color: COLORS.dim
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(3);
 
-      const cancel = this.add
-        .text(x + barW - 10 * s, labelY, '取消', {
-          fontFamily: FONT,
-          fontSize: `${Math.round(11 * s)}px`,
-          color: COLORS.dim
-        })
-        .setOrigin(1, 0.5)
-        .setDepth(3)
-        .setInteractive();
-      cancel.on('pointerdown', () => {
-        this.replaceItem = null;
-        haptic('tick');
-        this.rebuild();
+    // Weapons, left half: each one named and levelled, so a tap sells or
+    // upgrades the gun the player actually meant.
+    const weapons = run.state.weapons.slice(0, 3);
+    const chipGap = 6 * s;
+    const cellW = Math.min(72 * s, (barW / 2 - 20 * s - chipGap * 2) / 3);
+    const cellTop = y - barH / 2 + 24 * s;
+    const cellH = y + barH / 2 - 8 * s - cellTop;
+    const chipY = cellTop + cellH / 2;
+
+    weapons.forEach((slot, index) => {
+      this.buildWeaponChip(slot, index, {
+        cx: x + 10 * s + cellW / 2 + index * (cellW + chipGap),
+        cy: chipY,
+        width: cellW,
+        height: cellH,
+        radius: Math.min(12 * s, cellH * 0.28),
+        nameSize: 8 * s,
+        levelSize: 8 * s,
+        highlight: false,
+        s
       });
-    } else {
-      this.add
-        .text(x + 10 * s, labelY, '武器', {
-          fontFamily: FONT,
-          fontSize: `${Math.round(10 * s)}px`,
-          color: COLORS.dim
-        })
-        .setOrigin(0, 0.5)
-        .setDepth(3);
-
-      this.add
-        .text(x + barW / 2 + 10 * s, labelY, '道具', {
-          fontFamily: FONT,
-          fontSize: `${Math.round(10 * s)}px`,
-          color: COLORS.dim
-        })
-        .setOrigin(0, 0.5)
-        .setDepth(3);
-    }
-
-    const r = Math.max(11, Math.round(15 * s));
-    const step = r * 2 + 6 * s;
-    const chipY = y + 10 * s;
-
-    // Weapons, left half.
-    run.state.weapons.forEach((slot, index) => {
-      if (index >= 3) return;
-
-      const cx = x + 26 * s + index * step;
-      const def = weaponDef(slot);
-      const ring = rarityFor(slot.rarity).color;
-
-      g.fillStyle(0x0d1522, 0.9);
-      g.fillCircle(cx, chipY, r);
-      g.lineStyle(2, ring, 0.9);
-      g.strokeCircle(cx, chipY, r);
-
-      this.add
-        .text(cx, chipY, def ? def.emoji : '🔫', {
-          fontFamily: 'system-ui, -apple-system, sans-serif',
-          fontSize: `${Math.round(r * 1.15)}px`
-        })
-        .setOrigin(0.5)
-        .setDepth(3);
-
-      const zone = this.add.zone(cx, chipY, r * 2 + 4, r * 2 + 4).setInteractive();
-      zone.on('pointerdown', () => this.tapWeapon(index));
     });
+
+    const r = Math.max(11, Math.round(14 * s));
 
     // Items, right half.
     const keys = Object.keys(run.items).filter((key) => run.items[key] > 0);
@@ -392,12 +495,22 @@ export class ShopScene extends Phaser.Scene {
     }
   }
 
+  /// Tapping a carried gun opens its sheet. In replace mode the first tap picks
+  /// the gun and a second tap on the same one confirms, so the swap is never a
+  /// guess about which slot is about to change.
   tapWeapon(index) {
     const run = this.run();
     if (!run || !run.state) return;
 
     if (this.replaceItem) {
-      this.pickReplace(index);
+      if (this.pickedSlot === index) {
+        this.confirmReplace(index);
+        return;
+      }
+
+      this.pickedSlot = index;
+      haptic('tick');
+      this.scheduleRebuild();
       return;
     }
 
@@ -433,21 +546,44 @@ export class ShopScene extends Phaser.Scene {
     });
   }
 
-  /// Swaps the pending weapon into the slot just tapped.
-  pickReplace(index) {
+  /// Performs the swap the player picked, charging only once it has landed.
+  confirmReplace(slotIndex) {
     const pending = this.replaceItem;
     const run = this.run();
     if (!pending || !run || !run.replaceWeaponSlot) return;
 
-    if (!run.replaceWeaponSlot(index, pending.index)) {
+    const item = (this.stock() || [])[pending.index];
+    if (!item || item.sold) {
+      this.replaceItem = null;
+      this.pickedSlot = null;
+      this.scheduleRebuild();
+      return;
+    }
+
+    if (this.coins() < item.price) {
+      this.toast(`金币不够：${item.name} 要 ${item.price}`);
+      haptic('tick');
+      return;
+    }
+
+    let swapped = false;
+    try {
+      swapped = run.replaceWeaponSlot(slotIndex, pending.index) === true;
+    } catch (error) {
+      console.warn('Weapon replace failed:', error);
+    }
+
+    if (!swapped) {
+      this.toast('替换失败，再试一次');
       haptic('tick');
       return;
     }
 
     this.replaceItem = null;
+    this.pickedSlot = null;
     haptic('impact');
     Sfx.buy();
-    this.rebuild();
+    this.scheduleRebuild();
   }
 
   /// The small sheet for one owned weapon or item: pay to push a gun up a
@@ -556,7 +692,7 @@ export class ShopScene extends Phaser.Scene {
 
   closeSell() {
     this.sellTarget = null;
-    this.rebuild();
+    this.scheduleRebuild();
   }
 
   confirmSell() {
@@ -581,7 +717,7 @@ export class ShopScene extends Phaser.Scene {
     haptic('impact');
     Sfx.buy();
     this.sellTarget = null;
-    this.rebuild();
+    this.scheduleRebuild();
   }
 
   /// Pays to raise one carried gun's rarity a tier. Nothing is charged unless
@@ -603,7 +739,7 @@ export class ShopScene extends Phaser.Scene {
     haptic('impact');
     Sfx.buy();
     this.sellTarget = null;
-    this.rebuild();
+    this.scheduleRebuild();
   }
 
   /// Identical guns at the same rarity, straight from the run's weapon slots.
@@ -671,7 +807,7 @@ export class ShopScene extends Phaser.Scene {
     }
 
     haptic('impact');
-    this.rebuild();
+    this.scheduleRebuild();
   }
 
   buildCard(item, index, cx, cy, w, h, s) {
@@ -704,10 +840,6 @@ export class ShopScene extends Phaser.Scene {
 
     const priceX = cx + w / 2 - 16 * s;
     const priceY = cy + h * 0.22;
-    const lockX = cx + w / 2 - 27 * s;
-    const lockY = cy - h * 0.18;
-    const lockW = 44 * s;
-    const lockH = 34 * s;
 
     const coinIcon = this.add
       .image(priceX - 30 * s, priceY, 'coin')
@@ -732,18 +864,6 @@ export class ShopScene extends Phaser.Scene {
       .setOrigin(1, 0.5)
       .setDepth(3)
       .setVisible(false);
-
-    // A proper tap target for pinning an item: big enough to hit with a thumb.
-    // Weapons are re-rolled every visit, so only trinkets are worth pinning.
-    const lockG = this.add
-      .graphics()
-      .setDepth(4)
-      .setVisible(item.kind !== 'weapon');
-    const lockIcon = this.add
-      .image(lockX, lockY, 'icon-lock')
-      .setDisplaySize(16 * s, 16 * s)
-      .setDepth(5)
-      .setVisible(item.kind !== 'weapon');
 
     const iconSize = Math.min(h * 0.42, 36 * s);
     const iconX = cx - w / 2 + 20 * s + iconSize / 2;
@@ -801,37 +921,6 @@ export class ShopScene extends Phaser.Scene {
       .setOrigin(0, 0.5)
       .setDepth(3);
 
-    let lockZone = null;
-
-    const paintLock = () => {
-      const saved = !!item.saved;
-      const usable = !item.sold && item.kind !== 'weapon';
-
-      lockG.clear();
-      lockG.setVisible(usable);
-      lockIcon.setVisible(usable);
-      if (lockZone && lockZone.input) lockZone.input.enabled = usable;
-      if (!usable) return;
-
-      lockG.fillStyle(saved ? 0x2a2413 : 0x141c28, 0.95);
-      lockG.fillRoundedRect(
-        lockX - lockW / 2,
-        lockY - lockH / 2,
-        lockW,
-        lockH,
-        8
-      );
-      lockG.lineStyle(2, saved ? COLORS.gold : 0x3a4450, saved ? 0.9 : 0.6);
-      lockG.strokeRoundedRect(
-        lockX - lockW / 2,
-        lockY - lockH / 2,
-        lockW,
-        lockH,
-        8
-      );
-      lockIcon.setTint(saved ? COLORS.gold : 0x8fa3b0);
-    };
-
     const paint = () => {
       const affordable = this.coins() >= item.price;
 
@@ -853,7 +942,6 @@ export class ShopScene extends Phaser.Scene {
       soldText.setVisible(item.sold);
 
       paintTag();
-      paintLock();
     };
 
     paint();
@@ -861,48 +949,129 @@ export class ShopScene extends Phaser.Scene {
     const zone = this.add.zone(cx, cy, w, h).setInteractive();
     zone.on('pointerdown', () => this.buy(index));
 
-    // Created after the card zone, so it wins the tap on top of it.
-    lockZone = this.add.zone(lockX, lockY, lockW + 12 * s, lockH + 12 * s);
-    lockZone.setInteractive();
-    lockZone.on('pointerdown', (pointer, lx, ly, event) => {
-      if (event && event.stopPropagation) event.stopPropagation();
-      this.toggleLock(index);
-    });
-
     this.refs.push({ item, paint });
+  }
+
+  /// Why a card cannot be bought right now: '' when it can, otherwise a code
+  /// the shop turns into a sentence. Nothing is charged before this passes.
+  blockReason(index) {
+    const run = this.run();
+    const item = (this.stock() || [])[index];
+
+    if (!run || !run.state || !item || item.sold) return 'gone';
+    if (this.coins() < item.price) return 'coins';
+
+    if (item.kind === 'item') {
+      const def = ITEM_BY_KEY[item.key];
+      if (!def || this.owned(item.key) >= (def.max || 1)) return 'max';
+    }
+
+    if (item.kind === 'weapon') {
+      const same =
+        run.weaponMergeIndex &&
+        run.weaponMergeIndex(item.key, item.rarity) >= 0;
+      if (!same && run.state.weapons.length >= WEAPON_SLOTS) return 'full';
+    }
+
+    return '';
+  }
+
+  /// A short line so a tap that does not go through always says why instead of
+  /// looking dead.
+  toast(text) {
+    const W = this.scale.gameSize.width;
+    const H = this.scale.gameSize.height;
+    const s = computeLayout(W, H).uiScale;
+
+    const label = this.add
+      .text(W / 2, H * 0.56, text, {
+        fontFamily: FONT,
+        fontSize: `${Math.round(14 * s)}px`,
+        color: '#ffd166',
+        fontStyle: 'bold',
+        backgroundColor: '#1a1424',
+        padding: { x: Math.round(10 * s), y: Math.round(6 * s) }
+      })
+      .setOrigin(0.5)
+      .setDepth(31);
+
+    this.tweens.add({
+      targets: label,
+      alpha: 0,
+      delay: 900,
+      duration: 260,
+      onComplete: () => label.destroy()
+    });
+  }
+
+  /// A shop re-renders, it does not tear itself down inside the tap that asked
+  /// for it: rebuilding on the next tick keeps every tap after it alive.
+  scheduleRebuild() {
+    this.busy = true;
+
+    this.time.delayedCall(0, () => {
+      this.busy = false;
+      if (this.scene && this.scene.isActive() && this.children) this.rebuild();
+    });
   }
 
   buy(index) {
     const run = this.run();
-    if (!run || !run.buyShopItem) return;
+    if (!run || !run.buyShopItem || this.busy) return;
 
     const item = (this.stock() || [])[index];
+    if (!item) return;
 
-    // A full loadout asks which gun to give up instead of charging blindly.
-    if (
-      item &&
-      item.kind === 'weapon' &&
-      run.needsWeaponSlot(item.key, item.rarity)
-    ) {
+    const reason = this.blockReason(index);
+
+    // A full loadout does not fail: it asks which gun to give up instead.
+    if (reason === 'full') {
+      if (this.coins() < item.price) {
+        this.toast(`金币不够：${item.name} 要 ${item.price}`);
+        haptic('tick');
+        return;
+      }
+
       this.replaceItem = { index };
+      this.pickedSlot = null;
       haptic('tick');
-      this.rebuild();
+      this.scheduleRebuild();
       return;
     }
 
-    if (!run.buyShopItem(index)) {
+    if (reason === 'coins') {
+      this.toast(`金币不够：${item.name} 要 ${item.price}`);
+      haptic('tick');
+      return;
+    }
+
+    if (reason === 'max') {
+      this.toast('这件道具已经拿满了');
+      haptic('tick');
+      return;
+    }
+
+    if (reason) return;
+
+    let bought = false;
+    try {
+      bought = run.buyShopItem(index) === true;
+    } catch (error) {
+      console.warn('Shop purchase failed:', error);
+    }
+
+    if (!bought) {
+      this.toast('没能买下，再试一次');
       haptic('tick');
       return;
     }
 
     haptic('impact');
     Sfx.buy();
-    this.refresh();
-  }
 
-  refresh() {
-    for (const ref of this.refs) ref.paint();
-    if (this.coinText) this.coinText.setText(this.purse());
+    // A full re-render, not just a repaint: the gear strip has to show what was
+    // just bought, which is how the player knows it is in the bag.
+    this.scheduleRebuild();
   }
 
   refreshItems() {
@@ -910,25 +1079,13 @@ export class ShopScene extends Phaser.Scene {
     if (!run || !run.refreshShopItems) return;
 
     if (!run.refreshShopItems()) {
+      this.toast(`刷新要 ${SHOP_REFRESH_COST} 金币`);
       haptic('tick');
       return;
     }
 
     haptic('impact');
-    this.rebuild();
-  }
-
-  toggleLock(index) {
-    const run = this.run();
-    if (!run || !run.toggleShopLock) return;
-
-    // Only trinkets survive a refresh, so a weapon card cannot be pinned.
-    const item = (this.stock() || [])[index];
-    if (item && item.kind === 'weapon') return;
-
-    run.toggleShopLock(index);
-    haptic('tick');
-    this.refresh();
+    this.scheduleRebuild();
   }
 
   leave() {
