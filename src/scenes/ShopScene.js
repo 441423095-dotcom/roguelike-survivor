@@ -11,7 +11,7 @@ import { haptic } from '../haptics.js';
 import { Sfx } from '../game/audio.js';
 import { SHOP_REFRESH_COST } from '../game/shop.js';
 import { WEAPONS, WEAPON_SLOTS, weaponDef } from '../game/weapons.js';
-import { mergeCost, nextRarity, rarityFor, weaponName } from '../game/rarities.js';
+import { nextRarity, rarityFor, weaponName } from '../game/rarities.js';
 import { ITEM_BY_KEY } from '../game/passives.js';
 
 export class ShopScene extends Phaser.Scene {
@@ -70,6 +70,22 @@ export class ShopScene extends Phaser.Scene {
     return Number.isFinite(cap) ? `${coins}/${cap}` : String(coins);
   }
 
+  /// A note in the header while 打折券 is working, so a cheaper shelf is
+  /// explained rather than looking like a bug.
+  discountNote() {
+    const run = this.run();
+    const coupons = run && run.items ? run.items.coupon || 0 : 0;
+    return coupons > 0 ? ` · 打折中 -${coupons * 15}%` : '';
+  }
+
+  /// What the next re-roll costs right now: it climbs with every refresh in
+  /// this visit and 会员卡 takes its slice off.
+  refreshCost() {
+    const run = this.run();
+    if (run && run.refreshCost) return run.refreshCost();
+    return SHOP_REFRESH_COST;
+  }
+
   /// How many of this item the run already owns, read live so the card's tag
   /// updates the moment a copy is bought.
   owned(key) {
@@ -111,7 +127,7 @@ export class ShopScene extends Phaser.Scene {
       .text(
         W / 2,
         titleY + 24 * s,
-        `第 ${this.wave} 波结束 · 上面是道具，下面是武器`,
+        `第 ${this.wave} 波结束 · 上面是道具，下面是武器${this.discountNote()}`,
         {
           fontFamily: FONT,
           fontSize: `${Math.round(13 * s)}px`,
@@ -128,7 +144,7 @@ export class ShopScene extends Phaser.Scene {
       width: 124 * s,
       height: 34 * s,
       icon: 'rotate-ccw',
-      label: `刷新 ${SHOP_REFRESH_COST}`,
+      label: `刷新 ${this.refreshCost()}`,
       fontSize: Math.round(13 * s),
       accent: 0xb07bff,
       depth: 3,
@@ -773,8 +789,6 @@ export class ShopScene extends Phaser.Scene {
     const next = nextRarity(pair.rarity);
     if (!def || !next) return;
 
-    const cost = mergeCost(pair.rarity);
-
     const g = this.add.graphics().setDepth(2);
     g.fillStyle(0x2a2413, 0.92);
     g.fillRoundedRect(cx - w / 2, cy - h / 2, w, h, 12);
@@ -801,7 +815,7 @@ export class ShopScene extends Phaser.Scene {
       y: cy,
       width: Math.round(84 * s),
       height: Math.round(30 * s),
-      label: `合成 ${cost}`,
+      label: '免费合成',
       fontSize: Math.round(12 * s),
       accent: next.color,
       depth: 4,
@@ -1120,8 +1134,10 @@ export class ShopScene extends Phaser.Scene {
     const run = this.run();
     if (!run || !run.refreshShopItems) return;
 
+    const cost = this.refreshCost();
+
     if (!run.refreshShopItems()) {
-      this.toast(`刷新要 ${SHOP_REFRESH_COST} 金币`);
+      this.toast(`刷新要 ${cost} 金币`);
       haptic('tick');
       return;
     }

@@ -108,7 +108,7 @@ export const ENEMY_TYPES = {
     texture: 'mouse',
     hp: 8,
     speed: 250,
-    damage: 8,
+    damage: 5,
     radius: 8,
     offsetX: 6,
     offsetY: 3,

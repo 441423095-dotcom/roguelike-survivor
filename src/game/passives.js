@@ -3,19 +3,19 @@
 //
 // Passive items are always on. Active items carry a cooldown: they fire
 // themselves every few seconds and show a recharge ring in the HUD column. The
-// ones that touch the arena — the frog's gas, the teapot's mice, the rusty
-// coin's capped purse, every active — are driven by GameScene, which reads the
+// ones that touch the arena — the frog's gas, the teapot's mice, the piggy
+// bank's doubled coins, every active — are driven by GameScene, which reads the
 // stack count out of its item table.
 
 /// The frog winds up only while the player is actually walking, and every extra
 /// copy winds it tighter.
 export function frogInterval(stacks) {
-  return Math.max(4, 10 - 3 * (Math.max(1, stacks) - 1));
+  return Math.max(3, 7 - 2.5 * (Math.max(1, stacks) - 1));
 }
 
 /// Two teapots scream twice as often, and a mouse at a time is plenty.
 export function teapotInterval(stacks) {
-  return Math.max(3, 5 - 2 * (Math.max(1, stacks) - 1));
+  return Math.max(2, 4 - 1.5 * (Math.max(1, stacks) - 1));
 }
 
 // Seconds between triggers, by stack count.
@@ -48,13 +48,13 @@ export const PASSIVE_POOL = [
   },
   {
     key: 'rustycoin',
-    name: '生锈的硬币',
-    emoji: '🪙',
-    color: 0xd99a1f,
-    hex: '#d99a1f',
+    name: '存钱罐',
+    emoji: '🐷',
+    color: 0xffc94d,
+    hex: '#ffc94d',
     max: 1,
-    basePrice: 20,
-    desc: () => '金币上限锁死 50，但所有怪物掉落的金币翻倍'
+    basePrice: 24,
+    desc: () => '所有掉落的金币 ×2，金币不再有上限'
   },
   {
     key: 'teapot',
@@ -65,10 +65,30 @@ export const PASSIVE_POOL = [
     max: 2,
     basePrice: 26,
     desc: (level) =>
-      `攻速 +20%，但每 ${teapotInterval(level)} 秒招来一只极快的小老鼠`,
+      `攻速 +20%，每 ${teapotInterval(level)} 秒钻出一只小老鼠（打死掉金币）`,
     apply(state) {
       state.fireInterval = Math.max(80, state.fireInterval * 0.833);
     }
+  },
+  {
+    key: 'coupon',
+    name: '打折券',
+    emoji: '🎟️',
+    color: 0xffd166,
+    hex: '#ffd166',
+    max: 2,
+    basePrice: 20,
+    desc: () => '商店所有商品便宜 15%，买第二张再便宜 15%'
+  },
+  {
+    key: 'membercard',
+    name: '会员卡',
+    emoji: '💳',
+    color: 0x63ffe0,
+    hex: '#63ffe0',
+    max: 1,
+    basePrice: 28,
+    desc: () => '商店的刷新费用 -40%'
   },
   {
     key: 'bandaid',
@@ -353,9 +373,20 @@ export const ITEM_BY_KEY = Object.fromEntries(
 );
 
 /// Prices climb a little each wave and a lot each time the player already owns
-/// one, so the third frog costs more than the first — and still fits under the
-/// rusty coin's fifty.
+/// one, so the third frog costs more than the first.
 export function itemPrice(def, owned, wave) {
   const base = (def.basePrice || 20) + Math.max(0, owned) * 6 + wave * 1.5;
   return Math.min(45, Math.max(15, Math.round(base / 5) * 5));
+}
+
+/// How much 打折券 takes off the shelf: 15% a copy, with a floor so a couple of
+/// them cannot make the shop free.
+export function shopDiscount(owned) {
+  const coupons = owned && owned.coupon ? owned.coupon : 0;
+  return Math.max(0.6, 1 - 0.15 * coupons);
+}
+
+/// How much 会员卡 takes off a re-roll.
+export function refreshDiscount(owned) {
+  return owned && owned.membercard ? 0.6 : 1;
 }

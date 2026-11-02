@@ -11,12 +11,14 @@ import {
   ITEM_BY_KEY,
   activeCooldown,
   frogInterval,
-  teapotInterval
+  teapotInterval,
+  refreshDiscount,
+  shopDiscount
 } from '../game/passives.js';
 import { Sfx, setMusicTrack, duckMusic } from '../game/audio.js';
 import { xpForLevel, coinBudgetForWave } from '../game/loot.js';
 import { rarityColor, rarityFor } from '../game/rarities.js';
-import { nextRarity, mergeCost } from '../game/rarities.js';
+import { nextRarity, mergeCost, upgradeCost } from '../game/rarities.js';
 import { recordAchievement } from '../game/achievements.js';
 import {
   metaBonuses,
@@ -3180,6 +3182,7 @@ export class GameScene extends Phaser.Scene {
   /// spends or presses continue, so coins are never spent under pressure.
   openShop() {
     this.shopOpen = true;
+    this.shopRefreshes = 0;
     duckMusic(0.45);
     this.buildShopStock();
 
@@ -3250,6 +3253,15 @@ export class GameScene extends Phaser.Scene {
     this.state.coins -= item.price;
     item.sold = true;
 
+    // A discount bought mid-visit applies to the rest of the shelf right away
+    // rather than waiting for the next wave.
+    if (
+      item.kind === 'item' &&
+      (item.key === 'coupon' || item.key === 'membercard')
+    ) {
+      this.repriceShop();
+    }
+
     this.clampPlayerStats();
 
     if (this.state.hp > this.state.maxHp) this.state.hp = this.state.maxHp;
@@ -3269,11 +3281,9 @@ export class GameScene extends Phaser.Scene {
     if (def.apply) def.apply(this.state);
 
     if (key === 'rustycoin') {
-      // The purse locks at fifty for the rest of the run, and every coin the
-      // monsters drop is worth two.
-      this.state.coinCap = 50;
+      // 存钱罐: every coin the monsters drop is worth two, and the purse is
+      // never capped again.
       this.state.coinMult = 2;
-      this.state.coins = Math.min(this.state.coins, 50);
     } else if (key === 'frog') {
       this.frogCharge = 0;
     } else if (key === 'teapot') {
@@ -3289,14 +3299,36 @@ export class GameScene extends Phaser.Scene {
     return true;
   }
 
+  /// What the next re-roll costs: it climbs with every refresh in the same
+  /// visit, so re-rolling forever is not free, and 会员卡 takes a slice off.
+  refreshCost() {
+    const climbs = SHOP_REFRESH_COST * Math.pow(1.6, this.shopRefreshes || 0);
+    const cost = Math.round(climbs * refreshDiscount(this.items));
+    return Math.max(SHOP_REFRESH_COST, cost);
+  }
+
   /// Paid re-roll of the shop's stock. A bad roll should never be a dead end.
   refreshShopItems() {
     if (!this.shopOpen) return false;
-    if (this.state.coins < SHOP_REFRESH_COST) return false;
 
-    this.state.coins -= SHOP_REFRESH_COST;
+    const cost = this.refreshCost();
+    if (this.state.coins < cost) return false;
+
+    this.state.coins -= cost;
+    this.shopRefreshes = (this.shopRefreshes || 0) + 1;
     this.buildShopStock();
     return true;
+  }
+
+  /// Re-prices the cards still on the shelf, so a 打折券 bought mid-visit shows
+  /// up in the prices immediately instead of only on the next wave.
+  repriceShop() {
+    const discount = shopDiscount(this.items);
+
+    for (const item of this.shopItems) {
+      if (item.sold || !item.basePrice) continue;
+      item.price = Math.max(10, Math.round((item.basePrice * discount) / 5) * 5);
+    }
   }
 
   /// Leaving the shop hands out the upgrades earned during the wave — after the
@@ -3700,12 +3732,13 @@ export class GameScene extends Phaser.Scene {
     return true;
   }
 
-  /// What it costs to push one carried gun up a rarity tier from the shop.
+  /// What it costs to push one carried gun up a rarity tier from the shop: the
+  /// paid shortcut, since welding a duplicate pair is free.
   upgradeWeaponCost(index) {
     const slot = this.state.weapons[index];
     if (!slot) return 0;
     if (!nextRarity(slot.rarity || 'common')) return 0;
-    return mergeCost(slot.rarity || 'common');
+    return upgradeCost(slot.rarity || 'common');
   }
 
   /// Pays for the tier and raises it: the shop's own way of upgrading a gun the
@@ -3839,11 +3872,7 @@ export class GameScene extends Phaser.Scene {
       for (let i = 0; i < this.items[key]; i++) def.apply(s);
     }
 
-    if (this.items.rustycoin) {
-      s.coinCap = 50;
-      s.coinMult = 2;
-      s.coins = Math.min(s.coins, 50);
-    }
+    if (this.items.rustycoin) s.coinMult = 2;
 
     this.clampPlayerStats();
     s.hp = Math.min(s.hp, s.maxHp);

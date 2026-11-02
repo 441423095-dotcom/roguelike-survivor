@@ -223,8 +223,14 @@ export function weaponName(def, rarityKey) {
   return rarity.rank === 0 ? def.name : `${rarity.word}${def.name}`;
 }
 
-/// A pair merge is cheap on purpose: it is a reward for collecting duplicates.
-export function mergeCost(rarityKey) {
+/// Welding two identical guns together is free: collecting the pair is the work.
+export function mergeCost() {
+  return 0;
+}
+
+/// The shop's paid shortcut: pushing one carried gun up a tier without a
+/// duplicate to fuse it with. This is what 升级 in the gear sheet charges.
+export function upgradeCost(rarityKey) {
   const rarity = rarityFor(rarityKey);
-  return 10 * (rarity.rank + 1);
+  return 20 * (rarity.rank + 1);
 }

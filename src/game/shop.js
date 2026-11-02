@@ -3,7 +3,7 @@
 // from the wave's curve, so a deep run is offered real upgrades instead of a
 // rack of white guns.
 
-import { ITEM_POOL, itemPrice } from './passives.js';
+import { ITEM_POOL, itemPrice, shopDiscount } from './passives.js';
 import { WEAPONS, WEAPON_SLOTS } from './weapons.js';
 import {
   rollWeaponRarity,
@@ -19,7 +19,11 @@ export const ITEM_SLOTS = 5;
 export const WEAPON_OFFERS = 4;
 export const SHOP_SLOTS = ITEM_SLOTS + WEAPON_OFFERS;
 
-function rollItems(wave, stacks, count) {
+function roundPrice(value) {
+  return Math.max(10, Math.round(value / 5) * 5);
+}
+
+function rollItems(wave, stacks, count, discount) {
   const available = ITEM_POOL.filter(
     (def) => (stacks[def.key] || 0) < (def.max || 1)
   );
@@ -61,6 +65,10 @@ function rollItems(wave, stacks, count) {
     const bonus = rarity.rank >= 2 ? 2 : 1;
     const take = Math.max(1, Math.min(max - have, bonus));
     const level = Math.min(max, have + take);
+    // Two stacks in one card are cheaper than buying the copies one by one.
+    const basePrice = roundPrice(
+      itemPrice(def, have, wave) * (1 + 0.6 * (take - 1))
+    );
 
     return {
       kind: 'item',
@@ -76,8 +84,9 @@ function rollItems(wave, stacks, count) {
       rank: rarity.rank,
       stacks: take,
       level,
-      // Two stacks in one card are cheaper than buying the copies one by one.
-      price: Math.round(itemPrice(def, have, wave) * (1 + 0.6 * (take - 1))),
+      basePrice,
+      // 打折券 takes its slice off the whole shelf.
+      price: roundPrice(basePrice * discount),
       sold: false
     };
   });
@@ -114,6 +123,7 @@ function rollWeapon(wave, loadout, minRank = 0) {
     color: rarity.color,
     hex: rarity.hex,
     level,
+    basePrice: weaponPrice(key, rarity, wave, level),
     price: weaponPrice(key, rarity, wave, level),
     sold: false
   };
@@ -125,11 +135,14 @@ function rollWeapon(wave, loadout, minRank = 0) {
 /// draws them in: items on the top shelf, weapons below them.
 export function rollShopItems(wave, owned, loadout) {
   const stacks = owned || {};
+  const discount = shopDiscount(stacks);
 
   const weapons = [];
   for (let i = 0; i < WEAPON_OFFERS; i++) {
     const weapon = rollWeapon(wave, loadout);
-    if (weapon) weapons.push(weapon);
+    if (!weapon) continue;
+    weapon.price = roundPrice(weapon.basePrice * discount);
+    weapons.push(weapon);
   }
 
   // From wave five on, every visit is guaranteed one gun at the shelf's floor:
@@ -140,14 +153,18 @@ export function rollShopItems(wave, owned, loadout) {
     if (best < floor) {
       const slot = Math.floor(Math.random() * weapons.length);
       const forced = rollWeapon(wave, loadout, floor);
-      if (forced) weapons[slot] = forced;
+      if (forced) {
+        forced.price = roundPrice(forced.basePrice * discount);
+        weapons[slot] = forced;
+      }
     }
   }
 
   const items = rollItems(
     wave,
     stacks,
-    weapons.length > 0 ? ITEM_SLOTS : SHOP_SLOTS
+    weapons.length > 0 ? ITEM_SLOTS : SHOP_SLOTS,
+    discount
   );
 
   return items.concat(weapons);
