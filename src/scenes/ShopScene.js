@@ -168,21 +168,35 @@ export class ShopScene extends Phaser.Scene {
       onPress: () => this.refreshItems()
     });
 
-    // Purse: what the player has to spend right now.
+    // Purse: a neon capsule right under the title, the loudest thing up here.
     const purseY = titleY + 54 * s;
+    const purseW = 170 * s;
+    const purseH = 36 * s;
+
+    const purseG = this.add.graphics().setDepth(2);
+    purseG.fillStyle(0x0b1220, 0.8);
+    purseG.fillRoundedRect(W / 2 - purseW / 2, purseY - purseH / 2, purseW, purseH, 10);
+    purseG.lineStyle(6, 0x2bd3c4, 0.1);
+    purseG.strokeRoundedRect(W / 2 - purseW / 2, purseY - purseH / 2, purseW, purseH, 10);
+    purseG.lineStyle(1.5, 0x2bd3c4, 0.55);
+    purseG.strokeRoundedRect(W / 2 - purseW / 2, purseY - purseH / 2, purseW, purseH, 10);
+
     this.add
-      .image(W / 2 - 26 * s, purseY, 'coin')
-      .setDisplaySize(17 * s, 17 * s)
+      .image(W / 2 - purseW / 2 + 22 * s, purseY, 'coin')
+      .setDisplaySize(22 * s, 22 * s)
+      .setTint(0xffe66d)
       .setDepth(3);
+
     this.coinText = this.add
-      .text(W / 2 - 12 * s, purseY, this.purse(), {
+      .text(W / 2 - purseW / 2 + 40 * s, purseY, this.purse(), {
         fontFamily: FONT,
-        fontSize: `${Math.round(17 * s)}px`,
-        color: COLORS.goldHex,
+        fontSize: `${Math.round(22 * s)}px`,
+        color: NEON_PRICE,
         fontStyle: 'bold'
       })
       .setOrigin(0, 0.5)
       .setDepth(3);
+    this.coinText.setShadow(0, 0, '#ffe66d', 10, true, true);
 
     // Cards, in two shelves between the header and the continue button.
     const cardW = Math.min(W - 32, 430 * s);
@@ -204,10 +218,10 @@ export class ShopScene extends Phaser.Scene {
       );
     }
 
-    const areaTop = purseY + 22 * s + (bannerH > 0 ? bannerH + 8 * s : 0);
+    const areaTop = purseY + 24 * s + (bannerH > 0 ? bannerH + 8 * s : 0);
     // The gear strip grows taller while a gun is being replaced, so the shelf
     // above it has to give up that room rather than be drawn over.
-    const areaBottom = H - (this.replaceItem ? 212 : 182) * s;
+    const areaBottom = H - (this.replaceItem ? 216 : 186) * s;
 
     // Trinkets on the top shelf, weapons under them, both in a two-column grid:
     // eight cards leave each one tall enough to show its whole intro, and every
@@ -242,21 +256,46 @@ export class ShopScene extends Phaser.Scene {
       (avail - labelH * shelves.length - rowGap * (totalRows + shelves.length)) /
         Math.max(1, totalRows)
     );
-    const cellH = Math.max(38, Math.round(rawH * 0.76));
+    const cellH = Math.max(38, Math.round(rawH));
 
     let y = areaTop;
 
     shelves.forEach((shelf) => {
+      // Each shelf gets its own faint wash: warm for trinkets, cool for guns,
+      // plus a hairline that separates it from the one above.
+      const rows = rowsFor(shelf.cards.length);
+      const warm = shelf.label.startsWith('道具');
+      const tint = warm ? 0xff9f4d : 0x4fb8ff;
+      const shelfTop = y - 6 * s;
+      const shelfH = labelH + rows * cellH + (rows - 1) * rowGap + 10 * s;
+
+      const bg = this.add.graphics().setDepth(1);
+      bg.fillStyle(tint, 0.04);
+      bg.fillRoundedRect(
+        W / 2 - cardW / 2 - 6 * s,
+        shelfTop,
+        cardW + 12 * s,
+        shelfH,
+        12
+      );
+      bg.lineStyle(1, tint, 0.2);
+      bg.lineBetween(
+        W / 2 - cardW / 2 - 6 * s,
+        shelfTop + labelH,
+        W / 2 + cardW / 2 + 6 * s,
+        shelfTop + labelH
+      );
+
       this.add
         .text(W / 2 - cardW / 2 + 4 * s, y + labelH / 2, shelf.label, {
           fontFamily: FONT,
           fontSize: `${Math.round(11 * s)}px`,
-          color: COLORS.accentHex,
+          color: warm ? '#ffc48a' : COLORS.accentHex,
           fontStyle: 'bold'
         })
         .setOrigin(0, 0.5)
         .setDepth(2)
-        .setShadow(0, 0, NEON_CYAN, 8, true, true);
+        .setShadow(0, 0, warm ? '#ff9f40' : NEON_CYAN, 8, true, true);
       y += labelH;
 
       shelf.cards.forEach((entry, index) => {
@@ -267,7 +306,6 @@ export class ShopScene extends Phaser.Scene {
         this.buildCard(entry.item, entry.index, cx, cy, cellW, cellH, s);
       });
 
-      const rows = rowsFor(shelf.cards.length);
       y += rows * cellH + (rows - 1) * rowGap + rowGap;
     });
 
@@ -276,7 +314,7 @@ export class ShopScene extends Phaser.Scene {
 
     makeButton(this, {
       x: W / 2,
-      y: H - 58 * s,
+      y: H - 70 * s,
       width: Math.min(W - 60, 250 * s),
       height: Math.round(44 * s),
       icon: 'play',
@@ -287,7 +325,7 @@ export class ShopScene extends Phaser.Scene {
     });
 
     this.add
-      .text(W / 2, H - 24 * s, '不买也可以继续，金币会留到下次', {
+      .text(W / 2, H - 34 * s, '不买也可以继续，金币会留到下次', {
         fontFamily: FONT,
         fontSize: `${Math.round(12 * s)}px`,
         color: COLORS.dim
@@ -436,7 +474,7 @@ export class ShopScene extends Phaser.Scene {
     const barW = Math.min(W - 24, 430 * s);
     const barH = Math.round((replacing ? 104 : 80) * s);
     const x = (W - barW) / 2;
-    const y = H - (replacing ? 150 : 138) * s;
+    const y = H - (replacing ? 162 : 150) * s;
 
     const g = this.add.graphics().setDepth(2);
     // Fully opaque: on a very short screen the shelf shrinks but never slides
