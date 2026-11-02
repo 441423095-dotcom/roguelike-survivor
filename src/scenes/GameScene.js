@@ -958,6 +958,13 @@ export class GameScene extends Phaser.Scene {
     const dt = Math.min(delta, 48) / 1000;
     this.state.runTime += dt;
 
+    // A card that had to wait behind a boss, the pause menu or a weapon pick
+    // opens as soon as the screen is free again, instead of waiting for the shop.
+    if (this.levelsQueued > 0 && time > (this.bankRetryAt || 0)) {
+      this.bankRetryAt = time + 500;
+      this.openBankedCards();
+    }
+
     this.updateMovement(time, dt);
     this.updateFiring(delta);
     this.updateEnemies(delta);
@@ -3121,13 +3128,31 @@ export class GameScene extends Phaser.Scene {
       // roughly one per wave no matter how long the run goes.
       s.xpNext = xpForLevel(s.wave);
 
-      // The card is banked, not shown: a level-up never interrupts a fight. It
-      // is handed out when the wave is over, on the way back into the arena.
+      // The card is handed over straight away — a level that waits until the end
+      // of the wave is a level the player never notices. If something already
+      // owns the screen (a boss fight, the shop, the pause menu), it stays
+      // banked and opens the moment that closes.
       this.levelsQueued = (this.levelsQueued || 0) + 1;
       haptic('level_up');
       Sfx.levelUp();
       if (this.player) this.notify('升级', this.player.x, this.player.y - 10);
     }
+
+    this.openBankedCards();
+  }
+
+  /// Opens a banked level-up card if the screen is free for it. Deferred by one
+  /// tick, so a card never pauses the world from inside a physics callback.
+  openBankedCards() {
+    if (!this.running || this.levelsQueued <= 0) return;
+    if (this.choiceOpen || this.shopOpen || this.bossFight) return;
+    if (this.weaponChoice || this.pausedByUser || this.waveEnding) return;
+
+    this.time.delayedCall(0, () => {
+      if (!this.running) return;
+      if (this.choiceOpen || this.shopOpen || this.bossFight) return;
+      this.flushLevelUps();
+    });
   }
 
   hurt(amount) {
@@ -3566,13 +3591,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   /// Presents one banked level-up card, if any is waiting. Returns true when a
-  /// card was opened, in which case the caller must leave the run frozen.
+  /// card was opened, in which case the caller must leave the run frozen. The
+  /// level is only taken out of the bank once a card is really on screen, so a
+  /// blocked attempt can never swallow it.
   flushLevelUps() {
     if (!this.running) return false;
     if (this.levelsQueued <= 0) return false;
+    if (this.choiceOpen || this.bossFight) return false;
+
+    if (!this.requestChoice('level')) return false;
 
     this.levelsQueued -= 1;
-    return this.requestChoice('level');
+    return true;
   }
 
   finishChoice() {
