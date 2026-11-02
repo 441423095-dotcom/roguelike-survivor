@@ -232,10 +232,3 @@ export function weaponName(def, rarityKey) {
 export function mergeCost() {
   return 0;
 }
-
-/// The shop's paid shortcut: pushing one carried gun up a tier without a
-/// duplicate to fuse it with. This is what 升级 in the gear sheet charges.
-export function upgradeCost(rarityKey) {
-  const rarity = rarityFor(rarityKey);
-  return 20 * (rarity.rank + 1);
-}

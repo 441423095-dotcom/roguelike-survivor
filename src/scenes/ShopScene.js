@@ -217,9 +217,11 @@ export class ShopScene extends Phaser.Scene {
     );
 
     const rowGap = Math.round(7 * s);
-    const avail = Math.max(240, areaBottom - areaTop);
+    const avail = Math.max(200, areaBottom - areaTop);
+    // The floor is low on purpose: a short phone shrinks the cards instead of
+    // letting the last row slide under the gear strip below it.
     const cellH = Math.max(
-      62,
+      40,
       Math.min(
         100 * s,
         (avail - labelH * shelves.length - rowGap * (totalRows + shelves.length)) /
@@ -421,7 +423,9 @@ export class ShopScene extends Phaser.Scene {
     const y = H - (replacing ? 150 : 138) * s;
 
     const g = this.add.graphics().setDepth(2);
-    g.fillStyle(0x0b1018, 0.94);
+    // Fully opaque: on a very short screen the shelf shrinks but never slides
+    // under this strip, and nothing shows through it either way.
+    g.fillStyle(0x0b1018, 1);
     g.fillRoundedRect(x, y - barH / 2, barW, barH, 12);
     g.lineStyle(2, replacing ? 0xffd166 : 0x2bd3c4, replacing ? 0.85 : 0.3);
     g.strokeRoundedRect(x, y - barH / 2, barW, barH, 12);
@@ -547,16 +551,12 @@ export class ShopScene extends Phaser.Scene {
     if (!slot) return;
 
     const def = weaponDef(slot);
-    const next = nextRarity(slot.rarity || 'common');
 
     this.openSell({
       kind: 'weapon',
       index,
       name: weaponName(def, slot.rarity),
       price: run.weaponSellPrice(slot),
-      // A gun can be pushed up a tier for gold, or sold back for part of it.
-      upgradeCost: run.upgradeWeaponCost ? run.upgradeWeaponCost(index) : 0,
-      upgradeName: next && def ? weaponName(def, next.key) : '',
       desc: this.weaponDetail(slot)
     });
   }
@@ -661,19 +661,19 @@ export class ShopScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(22);
 
-    const canUpgrade = target.kind === 'weapon' && target.upgradeCost > 0;
-
+    // Only fusing two identical guns raises a tier; money cannot buy one, so
+    // the sheet says so instead of offering an upgrade.
     this.add
       .text(
         cx,
         cy - panelH / 2 + 54 * s,
-        canUpgrade
-          ? `升级为 ${target.upgradeName}：${target.upgradeCost} 金币`
+        target.kind === 'weapon'
+          ? '只能靠合成两把同品质武器来升阶'
           : '卖掉会让它彻底离开这一局',
         {
           fontFamily: FONT,
           fontSize: `${Math.round(13 * s)}px`,
-          color: canUpgrade ? COLORS.goldHex : COLORS.dim
+          color: COLORS.dim
         }
       )
       .setOrigin(0.5)
@@ -703,15 +703,8 @@ export class ShopScene extends Phaser.Scene {
         .setDepth(22);
     }
 
-    // Upgrade, sell or keep it — the choice is always the player's.
+    // Sell it or keep it — the choice is always the player's.
     const actions = [];
-    if (canUpgrade) {
-      actions.push({
-        label: `升级 ${target.upgradeCost}`,
-        accent: 0xffd166,
-        onPress: () => this.confirmUpgrade()
-      });
-    }
     actions.push({
       label: `出售 ${target.price}`,
       accent: COLORS.gold,
@@ -765,28 +758,6 @@ export class ShopScene extends Phaser.Scene {
     if (!refund) {
       haptic('tick');
       this.closeSell();
-      return;
-    }
-
-    haptic('impact');
-    Sfx.buy();
-    this.sellTarget = null;
-    this.scheduleRebuild();
-  }
-
-  /// Pays to raise one carried gun's rarity a tier. Nothing is charged unless
-  /// the upgrade really happened.
-  confirmUpgrade() {
-    const target = this.sellTarget;
-    const run = this.run();
-
-    if (!target || !run || target.kind !== 'weapon') {
-      this.closeSell();
-      return;
-    }
-
-    if (!run.upgradeWeapon || !run.upgradeWeapon(target.index)) {
-      haptic('tick');
       return;
     }
 

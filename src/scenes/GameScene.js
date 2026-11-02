@@ -23,7 +23,7 @@ import {
 import { Sfx, setMusicTrack, duckMusic } from '../game/audio.js';
 import { xpForLevel, coinBudgetForWave } from '../game/loot.js';
 import { rarityColor, rarityFor } from '../game/rarities.js';
-import { nextRarity, mergeCost, upgradeCost } from '../game/rarities.js';
+import { nextRarity, mergeCost } from '../game/rarities.js';
 import { recordAchievement } from '../game/achievements.js';
 import {
   metaBonuses,
@@ -55,6 +55,7 @@ import {
 import { haptic } from '../haptics.js';
 
 const BLINK_COOLDOWN = 4000;
+const BLINK_INVULN = 900;
 
 export class GameScene extends Phaser.Scene {
   constructor() {
@@ -505,7 +506,9 @@ export class GameScene extends Phaser.Scene {
     );
 
     this.blinkReadyAt = this.time.now + BLINK_COOLDOWN;
-    this.invulnUntil = Math.max(this.invulnUntil, this.time.now + 320);
+    // The whole flash is invulnerable: a teleport that can land you inside a
+    // boss and eat a hit is not worth using.
+    this.invulnUntil = Math.max(this.invulnUntil, this.time.now + BLINK_INVULN);
 
     const ghost = this.add
       .image(fromX, fromY, this.character.texture)
@@ -1086,7 +1089,7 @@ export class GameScene extends Phaser.Scene {
 
     if (now < chargeUntil) {
       const angle = boss.getData('chargeAngle') || 0;
-      boss.body.velocity.set(Math.cos(angle) * 560, Math.sin(angle) * 560);
+      boss.body.velocity.set(Math.cos(angle) * 520, Math.sin(angle) * 520);
       return;
     }
 
@@ -2653,7 +2656,7 @@ export class GameScene extends Phaser.Scene {
     const taken = amount * (1 - (s.armor || 0));
     s.hp = Math.max(0, s.hp - taken);
     this.lastHurtAt = this.time.now;
-    this.invulnUntil = this.time.now + 420;
+    this.invulnUntil = this.time.now + 600;
 
     this.cameras.main.shake(140, 0.007);
     this.player.setTint(0xff8899);
@@ -2961,7 +2964,7 @@ export class GameScene extends Phaser.Scene {
     enemy.setData('speed', def.speed * scale.speed * jitter);
     // A boss hits harder than the tier it stands in, but only slightly: one
     // charge should cost a chunk of health, never the whole run.
-    const hitBoost = def.behaviour === 'boss' ? 1.05 : 1;
+    const hitBoost = 1;
     enemy.setData(
       'damage',
       Math.round(def.damage * scale.damage * hitBoost * this.difficulty.damage)
@@ -3706,32 +3709,6 @@ export class GameScene extends Phaser.Scene {
     this.cooldowns = [];
     this.drawWeaponSlots();
     this.flashSlot(index);
-    return true;
-  }
-
-  /// What it costs to push one carried gun up a rarity tier from the shop: the
-  /// paid shortcut, since welding a duplicate pair is free.
-  upgradeWeaponCost(index) {
-    const slot = this.state.weapons[index];
-    if (!slot) return 0;
-    if (!nextRarity(slot.rarity || 'common')) return 0;
-    return upgradeCost(slot.rarity || 'common');
-  }
-
-  /// Pays for the tier and raises it: the shop's own way of upgrading a gun the
-  /// player already carries, without needing a duplicate to fuse.
-  upgradeWeapon(index) {
-    const slot = this.state.weapons[index];
-    if (!slot) return false;
-    if (!nextRarity(slot.rarity || 'common')) return false;
-
-    const cost = this.upgradeWeaponCost(index);
-    if (this.state.coins < cost) return false;
-    if (!this.mergeWeaponRarity(index)) return false;
-
-    this.state.coins -= cost;
-    Sfx.levelUp();
-    haptic('level_up');
     return true;
   }
 
