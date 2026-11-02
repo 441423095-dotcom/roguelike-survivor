@@ -16,6 +16,7 @@ import {
 import { Sfx, setMusicTrack, duckMusic } from '../game/audio.js';
 import { xpForLevel, weaponDropFactor, weaponDropKey } from '../game/loot.js';
 import { recordAchievement } from '../game/achievements.js';
+import { markDiscovered } from '../game/bestiary.js';
 import {
   WEAPONS,
   WEAPON_SLOTS,
@@ -1609,6 +1610,8 @@ export class GameScene extends Phaser.Scene {
     const def = ENEMY_TYPES.mouse;
     if (!def) return;
 
+    markDiscovered('mouse');
+
     // Two pests at a time is plenty: a crowd of them would be unreadable.
     let live = 0;
     for (const enemy of this.enemies.getChildren()) {
@@ -2077,6 +2080,8 @@ export class GameScene extends Phaser.Scene {
     const def = ENEMY_TYPES[typeKey];
     if (!def) return;
 
+    markDiscovered(typeKey);
+
     const field = this.layout.field;
     const edge = Phaser.Math.Between(0, 3);
     let x = 0;
@@ -2152,8 +2157,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   spawnEnemy() {
-    const def = ENEMY_TYPES[pickEnemyType(this.state.wave)];
+    const typeKey = pickEnemyType(this.state.wave);
+    const def = ENEMY_TYPES[typeKey];
     if (!def) return;
+
+    markDiscovered(typeKey);
 
     const field = this.layout.field;
     const edge = Phaser.Math.Between(0, 3);
@@ -2184,6 +2192,8 @@ export class GameScene extends Phaser.Scene {
 
     const def = ENEMY_TYPES.boss;
     if (!def) return;
+
+    markDiscovered('boss');
 
     const field = this.layout.field;
     const boss = this.makeEnemy(

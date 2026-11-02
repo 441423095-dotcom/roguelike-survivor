@@ -124,6 +124,19 @@ export class TitleScene extends Phaser.Scene {
       onPress: () => this.openAchievements()
     });
 
+    makeButton(this, {
+      x: 18 * s + 92 * s + 8 * s + 46 * s,
+      y: 30 * s,
+      width: 92 * s,
+      height: 30 * s,
+      icon: 'book-open',
+      label: '图鉴',
+      fontSize: Math.round(11 * s),
+      accent: 0x39e6cd,
+      depth: 3,
+      onPress: () => this.openBestiary()
+    });
+
     this.add
       .text(W / 2, H * 0.87, '自动射击 · 拖动屏幕任意处移动 · 右下按钮冲刺', {
         fontFamily: FONT,
@@ -153,6 +166,11 @@ export class TitleScene extends Phaser.Scene {
   openAchievements() {
     haptic('tick');
     this.scene.start('Achievement');
+  }
+
+  openBestiary() {
+    haptic('tick');
+    this.scene.start('Bestiary');
   }
 
   /// The archive strip under the start button, plus the (deliberately tucked

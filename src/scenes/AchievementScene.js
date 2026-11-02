@@ -19,6 +19,11 @@ export class AchievementScene extends Phaser.Scene {
     this.dragging = false;
     this.build();
 
+    this.input.on('pointerdown', this.onDragStart, this);
+    this.input.on('pointermove', this.onDragMove, this);
+    this.input.on('pointerup', this.onDragEnd, this);
+    this.input.on('pointerupoutside', this.onDragEnd, this);
+
     this.scale.on('resize', this.onResize, this);
     this.events.once('shutdown', () => {
       this.scale.off('resize', this.onResize, this);
@@ -112,11 +117,6 @@ export class AchievementScene extends Phaser.Scene {
       depth: 3,
       onPress: () => this.goBack()
     });
-
-    this.input.on('pointerdown', this.onDragStart, this);
-    this.input.on('pointermove', this.onDragMove, this);
-    this.input.on('pointerup', this.onDragEnd, this);
-    this.input.on('pointerupoutside', this.onDragEnd, this);
 
     sharpenText(this);
   }
