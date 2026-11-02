@@ -8,6 +8,7 @@ import { makeButton } from '../ui/widgets.js';
 import { sharpenText } from '../ui/text.js';
 import { haptic } from '../haptics.js';
 import { initAudio, startMusic, Sfx } from '../game/audio.js';
+import { openStatsPanel } from '../ui/statsPanel.js';
 
 export class HudScene extends Phaser.Scene {
   constructor() {
@@ -39,6 +40,7 @@ export class HudScene extends Phaser.Scene {
     this.tweens.killAll();
     this.children.removeAll(true);
     this.pauseShown = false;
+    this.statsPanel = null;
     this.build();
   }
 
@@ -151,7 +153,7 @@ export class HudScene extends Phaser.Scene {
     const cy = L.height / 2;
     const scale = L.uiScale;
     const panelW = Math.min(L.width - 48, 300 * scale);
-    const panelH = Math.round(258 * scale);
+    const panelH = Math.round(330 * scale);
 
     const items = [];
     const zones = [];
@@ -175,7 +177,7 @@ export class HudScene extends Phaser.Scene {
     items.push(panel);
 
     const title = this.add
-      .text(cx, cy - 96 * scale, '已暂停', {
+      .text(cx, cy - 132 * scale, '已暂停', {
         fontFamily: FONT,
         fontSize: `${Math.round(24 * scale)}px`,
         color: COLORS.ink,
@@ -190,7 +192,7 @@ export class HudScene extends Phaser.Scene {
 
     const resume = makeButton(this, {
       x: cx,
-      y: cy - 30 * scale,
+      y: cy - 74 * scale,
       width: btnW,
       height: btnH,
       icon: 'play',
@@ -201,9 +203,23 @@ export class HudScene extends Phaser.Scene {
     items.push(...resume.items);
     zones.push(resume.zone);
 
+    const stats = makeButton(this, {
+      x: cx,
+      y: cy - 18 * scale,
+      width: btnW,
+      height: btnH,
+      icon: 'gauge',
+      label: '角色属性',
+      accent: 0x39e6cd,
+      depth: 12,
+      onPress: () => this.openStats()
+    });
+    items.push(...stats.items);
+    zones.push(stats.zone);
+
     const restart = makeButton(this, {
       x: cx,
-      y: cy + 34 * scale,
+      y: cy + 38 * scale,
       width: btnW,
       height: btnH,
       icon: 'rotate-ccw',
@@ -217,7 +233,7 @@ export class HudScene extends Phaser.Scene {
 
     const home = makeButton(this, {
       x: cx,
-      y: cy + 98 * scale,
+      y: cy + 94 * scale,
       width: btnW,
       height: btnH,
       icon: 'chevron-left',
@@ -245,6 +261,21 @@ export class HudScene extends Phaser.Scene {
     if (this.pauseShown === paused) return;
     this.pauseShown = paused;
     this.applyPauseVisibility(paused);
+
+    // Leaving the pause screen takes the character sheet with it.
+    if (!paused && this.statsPanel) {
+      this.statsPanel.close();
+      this.statsPanel = null;
+    }
+  }
+
+  /// The character sheet, read live from the paused run.
+  openStats() {
+    if (this.statsPanel) {
+      this.statsPanel.close();
+      this.statsPanel = null;
+    }
+    this.statsPanel = openStatsPanel(this);
   }
 
   togglePause() {

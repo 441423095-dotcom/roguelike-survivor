@@ -13,6 +13,7 @@ import { SHOP_REFRESH_COST } from '../game/shop.js';
 import { WEAPONS, WEAPON_SLOTS, weaponDef, weaponStats } from '../game/weapons.js';
 import { nextRarity, rarityFor, weaponName } from '../game/rarities.js';
 import { ITEM_BY_KEY } from '../game/passives.js';
+import { openStatsPanel } from '../ui/statsPanel.js';
 
 // The shop's neon accents: cyan for structure, magenta for danger accents and a
 // hot yellow reserved for money.
@@ -56,6 +57,8 @@ export class ShopScene extends Phaser.Scene {
     this.tweens.killAll();
     this.children.removeAll(true);
     this.refs = [];
+    // Anything the sheet was holding went with the children above.
+    this.statsPanel = null;
     this.build();
   }
 
@@ -166,6 +169,20 @@ export class ShopScene extends Phaser.Scene {
       accent: 0xb07bff,
       depth: 3,
       onPress: () => this.refreshItems()
+    });
+
+    // The character sheet, mirroring it on the left.
+    makeButton(this, {
+      x: 12 * s + 54 * s,
+      y: titleY,
+      width: 108 * s,
+      height: 34 * s,
+      icon: 'gauge',
+      label: '角色属性',
+      fontSize: Math.round(12 * s),
+      accent: 0x39e6cd,
+      depth: 3,
+      onPress: () => this.openStats()
     });
 
     // Purse: a neon capsule right under the title, the loudest thing up here.
@@ -1516,6 +1533,15 @@ export class ShopScene extends Phaser.Scene {
     // A full re-render, not just a repaint: the gear strip has to show what was
     // just bought, which is how the player knows it is in the bag.
     this.scheduleRebuild();
+  }
+
+  /// The character sheet, over the frozen shop.
+  openStats() {
+    if (this.statsPanel) {
+      this.statsPanel.close();
+      this.statsPanel = null;
+    }
+    this.statsPanel = openStatsPanel(this);
   }
 
   refreshItems() {
