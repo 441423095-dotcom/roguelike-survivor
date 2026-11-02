@@ -1,7 +1,6 @@
-// The start screen: the game's name over a quietly alive backdrop, one glowing
-// way into the arena, and the side doors into the meta screens. Everything here
-// is drawn in code — the only image is the game's own hero sprite, used as a
-// huge, barely-there watermark.
+// The start screen: the game's name over the arena artwork, one glowing way into
+// the fight, and the side doors into the meta screens. The backdrop picture is
+// optional — without it the screen falls back to the procedural grid and stars.
 
 import { computeLayout } from '../ui/layout.js';
 import { COLORS, FONT } from '../ui/style.js';
@@ -23,6 +22,12 @@ const VERSION_LABEL = 'Version 1.0.0';
 export class TitleScene extends Phaser.Scene {
   constructor() {
     super('Title');
+  }
+
+  preload() {
+    // The arena artwork. If it is missing the scene still works: the grid and
+    // stars below are drawn in code and are the whole backdrop on their own.
+    this.load.image('title-bg', 'assets/title-bg.png');
   }
 
   create() {
@@ -93,19 +98,34 @@ export class TitleScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- backdrop
 
-  /// A faint grid, slowly drifting specks and two breathing glows: enough motion
-  /// that the screen never looks like a dead page.
+  /// The arena artwork, when it is there, fills the screen behind everything:
+  /// cover-fit, with a dark veil over it and the procedural grid, stars and
+  /// watermark kept at a whisper so the picture stays the backdrop.
   buildBackdrop(W, H) {
+    let strength = 1;
+
+    if (this.textures.exists('title-bg')) {
+      const art = this.add.image(W / 2, H / 2, 'title-bg').setDepth(-40);
+      art.setScale(Math.max(W / art.width, H / art.height));
+
+      // The veil keeps the wordmark and the story readable over any picture.
+      this.add
+        .rectangle(W / 2, H / 2, W, H, 0x04060b, 0.52)
+        .setDepth(-39);
+
+      strength = 0.4;
+    }
+
     const grid = this.add.graphics().setDepth(-30);
     const step = Math.max(28, Math.round(W / 11));
 
     grid.lineStyle(1, 0x2a5866, 0.55);
     for (let x = 0; x <= W + step; x += step) grid.lineBetween(x, 0, x, H);
     for (let y = 0; y <= H + step; y += step) grid.lineBetween(0, y, W, y);
-    grid.setAlpha(0.22);
+    grid.setAlpha(0.22 * strength);
     this.tweens.add({
       targets: grid,
-      alpha: 0.1,
+      alpha: 0.1 * strength,
       duration: 7000,
       yoyo: true,
       repeat: -1,
@@ -113,11 +133,11 @@ export class TitleScene extends Phaser.Scene {
     });
 
     const nebulaA = this.add
-      .ellipse(W * 0.18, H * 0.18, W * 0.95, W * 0.95, 0x0d3a44, 0.5)
+      .ellipse(W * 0.18, H * 0.18, W * 0.95, W * 0.95, 0x0d3a44, 0.5 * strength)
       .setDepth(-31);
     this.tweens.add({
       targets: nebulaA,
-      alpha: 0.22,
+      alpha: 0.22 * strength,
       scale: 1.08,
       duration: 9000,
       yoyo: true,
@@ -126,11 +146,11 @@ export class TitleScene extends Phaser.Scene {
     });
 
     const nebulaB = this.add
-      .ellipse(W * 0.86, H * 0.78, W * 0.9, W * 0.9, 0x2a1a45, 0.45)
+      .ellipse(W * 0.86, H * 0.78, W * 0.9, W * 0.9, 0x2a1a45, 0.45 * strength)
       .setDepth(-31);
     this.tweens.add({
       targets: nebulaB,
-      alpha: 0.2,
+      alpha: 0.2 * strength,
       scale: 1.06,
       duration: 11000,
       yoyo: true,
@@ -146,7 +166,7 @@ export class TitleScene extends Phaser.Scene {
           Phaser.Math.Between(0, H),
           Math.random() < 0.85 ? 1 : 1.8,
           0xa8e6ff,
-          Phaser.Math.FloatBetween(0.12, 0.5)
+          Phaser.Math.FloatBetween(0.12, 0.5) * strength
         )
         .setDepth(-29);
 
@@ -167,7 +187,7 @@ export class TitleScene extends Phaser.Scene {
     const mark = this.add
       .image(W / 2, H * 0.47, 'hero')
       .setDisplaySize(size, size)
-      .setAlpha(0.05)
+      .setAlpha(0.05 * strength)
       .setTint(0x63ffe0)
       .setDepth(-28);
     this.tweens.add({
