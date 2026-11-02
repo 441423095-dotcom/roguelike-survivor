@@ -21,6 +21,9 @@ export class TitleScene extends Phaser.Scene {
     initAudio(this);
     startMusic(this, 'menu');
 
+    // The game is on screen: dismiss the boot panel in index.html.
+    if (window.gameReady) window.gameReady();
+
     this.scale.on('resize', this.onResize, this);
     this.events.once('shutdown', () => {
       this.scale.off('resize', this.onResize, this);

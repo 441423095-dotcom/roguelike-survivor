@@ -45,3 +45,35 @@ body {
 #stage canvas {
   display: block;
 }
+
+
+/* The boot panel: shown until the game reports itself ready, and turned into an
+   error message if a script throws first. */
+#boot {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 28px;
+  text-align: center;
+  background: #070a10;
+  color: #eafcff;
+  font-family: -apple-system, 'PingFang SC', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  z-index: 10;
+}
+
+#boot .boot-hint {
+  max-width: 320px;
+  font-size: 12px;
+  color: #9aa8b4;
+}
+
+#boot-msg.boot-error {
+  color: #ff8a9a;
+  font-weight: 600;
+}

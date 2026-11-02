@@ -6,6 +6,36 @@
 
 <div id="stage"></div>
 
+<!-- A boot overlay: a page that never starts shows this text instead of a silent
+     black screen, which is impossible to report from a phone. -->
+<div id="boot" role="status">
+  <p id="boot-msg">正在加载游戏…</p>
+  <p class="boot-hint">
+    如果一直停在这里，请用 Safari 或 Chrome 打开本链接，不要在微信 / QQ
+    的内置浏览器里打开。
+  </p>
+</div>
+
+<script>
+  // Called by the title screen once the game is actually on screen.
+  window.gameReady = function () {
+    window.bootDone = true;
+    var box = document.getElementById('boot');
+    if (box) box.style.display = 'none';
+  };
+
+  // Anything that throws before the game is up turns the panel into a message.
+  window.addEventListener('error', function (event) {
+    if (window.bootDone) return;
+
+    var label = document.getElementById('boot-msg');
+    if (!label) return;
+
+    label.textContent = '加载出错：' + (event && event.message ? event.message : '脚本未能运行');
+    label.className = 'boot-error';
+  });
+</script>
+
 <!-- Phaser is a classic script, not a module: it defines the global `Phaser`.
      Classic scripts run before module scripts, which are deferred, so main.js
      can rely on `Phaser` already existing without importing anything. -->
