@@ -31,7 +31,8 @@ import {
   waveDuration,
   waveScaling,
   waveSpawnPlan,
-  isBossWave
+  isBossWave,
+  isEndlessWave
 } from '../game/enemies.js';
 import { haptic } from '../haptics.js';
 
@@ -2022,7 +2023,10 @@ export class GameScene extends Phaser.Scene {
       // boss falls.
       this.bossFight = true;
       s.waveLeft = 0;
-      this.banner(`第 ${wave} 波 · 首领`, '击败首领结束这一波');
+      this.banner(
+        isEndlessWave(wave) ? `无尽波 ${wave} · 首领` : `第 ${wave} 波 · 首领`,
+        '击败首领结束这一波'
+      );
       this.time.delayedCall(700, () => this.spawnBoss());
       return;
     }
@@ -2038,7 +2042,10 @@ export class GameScene extends Phaser.Scene {
       callbackScope: this
     });
 
-    this.banner(`第 ${wave} 波`, `坚持 ${Math.round(s.waveLeft)} 秒`);
+    this.banner(
+      isEndlessWave(wave) ? `无尽波 ${wave}` : `第 ${wave} 波`,
+      `坚持 ${Math.round(s.waveLeft)} 秒`
+    );
 
     // An elite joins from wave 5, and a second one from wave 8.
     if (wave >= 5) {

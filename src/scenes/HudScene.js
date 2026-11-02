@@ -8,7 +8,7 @@ import { makeButton } from '../ui/widgets.js';
 import { sharpenText } from '../ui/text.js';
 import { haptic } from '../haptics.js';
 import { initAudio, startMusic, Sfx } from '../game/audio.js';
-import { waveDuration } from '../game/enemies.js';
+import { waveDuration, isEndlessWave } from '../game/enemies.js';
 
 export class HudScene extends Phaser.Scene {
   constructor() {
@@ -437,7 +437,9 @@ export class HudScene extends Phaser.Scene {
       Number.isFinite(s.coinCap) ? `${coins}/${s.coinCap}` : String(coins)
     );
 
-    this.waveText.setText(`第 ${s.wave} 波`);
+    this.waveText.setText(
+      isEndlessWave(s.wave) ? `无尽波 ${s.wave}` : `第 ${s.wave} 波`
+    );
     this.updateTimer(run, s);
 
     this.updateBossBar(run);

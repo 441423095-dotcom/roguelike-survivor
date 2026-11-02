@@ -145,19 +145,30 @@ export function isBossWave(wave) {
   return wave % 5 === 0;
 }
 
+/// Wave 20 is the last of the normal run: from 21 on the horde never stops.
+export const ENDLESS_FROM = 20;
+
+export function isEndlessWave(wave) {
+  return wave > ENDLESS_FROM;
+}
+
 /// How long a wave lasts, in seconds.
 export function waveDuration(wave) {
   return Math.min(20 + wave * 2, 38);
 }
 
 /// The whole curve in one place, so the late run cannot drift out of control:
-/// health compounds, speed and damage taper off well before they get silly.
+/// health compounds up to wave 20, then keeps climbing more gently so an endless
+/// run stays a mountain to climb rather than a brick wall.
 export function waveScaling(wave) {
   const w = Math.max(1, wave);
+  const endless = Math.max(0, w - ENDLESS_FROM);
 
   return {
-    hp: Math.pow(1.13, w - 1),
-    speed: Math.min(1.7, 1 + (w - 1) * 0.035),
+    hp:
+      Math.pow(1.13, Math.min(w - 1, ENDLESS_FROM - 1)) *
+      Math.pow(1.05, endless),
+    speed: Math.min(2.05, 1 + (w - 1) * 0.035),
     damage: Math.min(2.4, 1 + (w - 1) * 0.075),
     count: Math.min(90, 34 + w * 3)
   };
@@ -166,7 +177,8 @@ export function waveScaling(wave) {
 /// How often a spawn tick fires, how many it drops and how many may be alive.
 /// The opening waves are deliberately thin — that is the stretch where the
 /// player builds a run — and density only levels off afterwards, so pressure
-/// comes from how hard the horde hunts rather than from a wall of bodies.
+/// comes from how hard the horde hunts rather than from a wall of bodies. Past
+/// wave 20 the ceiling keeps creeping up, one body at a time.
 export function waveSpawnPlan(wave) {
   const w = Math.max(1, wave);
 
@@ -179,10 +191,12 @@ export function waveSpawnPlan(wave) {
   }
 
   const t = Math.min(1, (w - 5) / 15);
+  const endless = Math.max(0, w - ENDLESS_FROM);
+
   return {
-    delay: Math.round(980 - 220 * t),
+    delay: Math.max(640, Math.round(980 - 220 * t - endless * 8)),
     count: Math.min(4, 2 + Math.floor((w - 5) / 4)),
-    cap: Math.round(24 + 14 * t)
+    cap: Math.min(64, Math.round(24 + 14 * t) + endless)
   };
 }
 

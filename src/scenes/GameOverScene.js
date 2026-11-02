@@ -5,6 +5,7 @@ import { COLORS, FONT } from '../ui/style.js';
 import { makeButton } from '../ui/widgets.js';
 import { sharpenText } from '../ui/text.js';
 import { formatDuration } from '../game/progress.js';
+import { ENDLESS_FROM, isEndlessWave } from '../game/enemies.js';
 
 export class GameOverScene extends Phaser.Scene {
   constructor() {
@@ -91,8 +92,15 @@ export class GameOverScene extends Phaser.Scene {
         .setDepth(3);
     }
 
+    const wave = this.summary.wave || 1;
+    const endless = isEndlessWave(wave);
+
     const rows = [
-      ['到达波次', `第 ${this.summary.wave || 1} 波`, !!this.records.wave],
+      [
+        '到达波次',
+        endless ? `无尽波 ${wave}` : `第 ${wave} 波`,
+        !!this.records.wave
+      ],
       ['击杀数量', `${this.summary.kills || 0}`, !!this.records.kills],
       ['存活时间', formatDuration(this.summary.time), !!this.records.time]
     ];
@@ -130,6 +138,25 @@ export class GameOverScene extends Phaser.Scene {
             fontFamily: FONT,
             fontSize: `${Math.round(12 * s)}px`,
             color: COLORS.dim
+          }
+        )
+        .setOrigin(0.5)
+        .setDepth(3);
+    }
+
+    // Endless runs get their own line: the wave count only means something if
+    // the summary says how far past the normal run it went.
+    if (endless) {
+      this.add
+        .text(
+          cx,
+          cy - panelH / 2 + 204 * s,
+          `进入无尽模式后撑过 ${wave - ENDLESS_FROM} 波`,
+          {
+            fontFamily: FONT,
+            fontSize: `${Math.round(12 * s)}px`,
+            color: COLORS.goldHex,
+            fontStyle: 'bold'
           }
         )
         .setOrigin(0.5)
