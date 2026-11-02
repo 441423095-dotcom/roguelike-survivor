@@ -3739,6 +3739,9 @@ export class GameScene extends Phaser.Scene {
     if (this.shopAfterLevels) {
       if (this.flushLevelUps()) return;
       this.shopAfterLevels = false;
+      // The card screen paused this scene, and a paused scene's clock never
+      // fires the shop's delayed launch: let the game tick again first.
+      this.scene.resume();
       this.openShop();
       return;
     }
@@ -3934,16 +3937,20 @@ export class GameScene extends Phaser.Scene {
       recordAchievement({ maxCards: this.shopItems.length })
     );
 
-    // One tick later, so a boss dying inside a physics step never pauses the
-    // world halfway through it.
-    this.time.delayedCall(0, () => {
+    const launch = () => {
       if (!this.shopOpen) return;
       this.scene.launch('Shop', {
         wave: this.state.wave,
         items: this.shopItems
       });
       this.scene.pause();
-    });
+    };
+
+    // One tick later, so a boss dying inside a physics step never pauses the
+    // world halfway through it. A paused scene never ticks, though, so in that
+    // case the shop opens at once instead of waiting for a clock that is stopped.
+    if (this.scene.isPaused()) launch();
+    else this.time.delayedCall(0, launch);
   }
 
   /// The shelf is two rows: ITEM_SLOTS trinkets on top and the weapon offers
