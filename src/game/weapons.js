@@ -11,7 +11,7 @@
 
 import { rarityBonus } from './rarities.js';
 
-export const WEAPON_SLOTS = 3;
+export const WEAPON_SLOTS = 5;
 
 // The figures a fresh run starts with. Every upgrade multiplies these, and the
 // ratios are applied to each weapon's own base below.

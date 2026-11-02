@@ -1224,9 +1224,14 @@ export class GameScene extends Phaser.Scene {
 
       if (dist < 20) {
         const value = pickup.getData('value') || 1;
-        if (pickup.getData('kind') === 'coin') {
+        const kind = pickup.getData('kind');
+
+        if (kind === 'coin') {
           this.addCoins(value);
           Sfx.coin();
+        } else if (kind === 'heart') {
+          this.healNow(value);
+          Sfx.heal();
         } else {
           this.addXp(value);
           Sfx.gem();
@@ -2606,6 +2611,42 @@ export class GameScene extends Phaser.Scene {
     this.dropPickup('coin', 'coin', value, x, y, spread);
   }
 
+  /// A rare heart on the floor: walk over it and a chunk of health comes back.
+  /// Only one is ever lying around, so it reads as a gift rather than scenery.
+  dropHeart() {
+    if (this.pickups.some((pickup) => pickup.getData('kind') === 'heart')) {
+      return false;
+    }
+
+    const field = this.layout.field;
+    const top = (this.safeTop || 0) + 50;
+    const x = Phaser.Math.Between(40, Math.max(50, field.width - 40));
+    const y = Phaser.Math.Between(
+      top,
+      Math.max(this.safeTop + 60, field.height - 70)
+    );
+
+    const heart = this.add
+      .image(x, y, 'icon-heart')
+      .setDepth(2)
+      .setTint(0xff5a72)
+      .setScale(0.9);
+
+    heart.setData('kind', 'heart');
+    heart.setData('value', Math.round(this.state.maxHp * 0.12) + 6);
+
+    this.tweens.add({
+      targets: heart,
+      scale: 1.1,
+      duration: 700,
+      yoyo: true,
+      repeat: -1
+    });
+
+    this.pickups.push(heart);
+    return true;
+  }
+
   dropPickup(texture, kind, value, x, y, spread) {
     const pickup = this.add
       .image(
@@ -2868,6 +2909,9 @@ export class GameScene extends Phaser.Scene {
 
   spawnTick() {
     if (!this.running || this.waveEnding) return;
+
+    // A rare heart on the floor: a bad wave can still be pulled back.
+    if (Math.random() < 0.06) this.dropHeart();
 
     const plan = waveSpawnPlan(this.state.wave);
     if (this.enemies.countActive(true) >= plan.cap) return;

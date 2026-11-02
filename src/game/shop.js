@@ -16,7 +16,7 @@ import {
 
 export const SHOP_REFRESH_COST = 5;
 export const ITEM_SLOTS = 5;
-export const WEAPON_OFFERS = 4;
+export const WEAPON_OFFERS = 5;
 export const SHOP_SLOTS = ITEM_SLOTS + WEAPON_OFFERS;
 
 function roundPrice(value) {

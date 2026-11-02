@@ -164,12 +164,18 @@ export function waveDuration(wave) {
 /// The whole curve in one place, so the late run cannot drift out of control:
 /// health compounds up to wave 20, then keeps climbing more gently so an endless
 /// run stays a mountain to climb rather than a brick wall.
+///
+/// The horde also thickens in step with the arsenal: a run that has grown from
+/// three guns to five brings roughly half again the damage, so health rises to
+/// match over the first few waves and settles there.
 export function waveScaling(wave) {
   const w = Math.max(1, wave);
   const endless = Math.max(0, w - ENDLESS_FROM);
+  const armsRace = 1 + 0.5 * Math.min(1, (w - 1) / 6);
 
   return {
     hp:
+      armsRace *
       Math.pow(1.13, Math.min(w - 1, ENDLESS_FROM - 1)) *
       Math.pow(1.05, endless),
     speed: Math.min(2.05, 1 + (w - 1) * 0.035),
@@ -190,7 +196,7 @@ export function waveSpawnPlan(wave) {
     return {
       delay: 1750 - w * 120,
       count: w <= 3 ? 1 : 2,
-      cap: 8 + w * 2
+      cap: Math.round((8 + w * 2) * 1.15)
     };
   }
 
@@ -200,7 +206,7 @@ export function waveSpawnPlan(wave) {
   return {
     delay: Math.max(640, Math.round(980 - 220 * t - endless * 8)),
     count: Math.min(4, 2 + Math.floor((w - 5) / 4)),
-    cap: Math.min(64, Math.round(24 + 14 * t) + endless)
+    cap: Math.min(72, Math.round(24 + 14 * t) + endless)
   };
 }
 

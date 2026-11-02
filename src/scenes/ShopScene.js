@@ -385,7 +385,7 @@ export class ShopScene extends Phaser.Scene {
         this.scheduleRebuild();
       });
 
-    const weapons = run.state.weapons.slice(0, 3);
+    const weapons = run.state.weapons.slice(0, WEAPON_SLOTS);
     const count = Math.max(1, weapons.length);
     const gap = 8 * s;
     const usableW = barW - 20 * s;
@@ -459,27 +459,48 @@ export class ShopScene extends Phaser.Scene {
       .setOrigin(0, 0.5)
       .setDepth(3);
 
-    // Weapons, left half: each one named and levelled, so a tap sells or
-    // upgrades the gun the player actually meant.
-    const weapons = run.state.weapons.slice(0, 3);
-    const chipGap = 6 * s;
-    const cellW = Math.min(72 * s, (barW / 2 - 20 * s - chipGap * 2) / 3);
-    const cellTop = y - barH / 2 + 24 * s;
-    const cellH = y + barH / 2 - 8 * s - cellTop;
-    const chipY = cellTop + cellH / 2;
+    // Weapons, left half: an emoji chip each with its level on the rim. The
+    // full name and numbers live in the sheet a tap opens, so five guns fit.
+    const weapons = run.state.weapons.slice(0, WEAPON_SLOTS);
+    const chipY = y + 8 * s;
+    const chipR = Math.min(15 * s, barH * 0.22);
+    const step = Math.min(
+      chipR * 2 + 12 * s,
+      (barW / 2 - 26 * s) / Math.max(1, weapons.length)
+    );
 
     weapons.forEach((slot, index) => {
-      this.buildWeaponChip(slot, index, {
-        cx: x + 10 * s + cellW / 2 + index * (cellW + chipGap),
-        cy: chipY,
-        width: cellW,
-        height: cellH,
-        radius: Math.min(12 * s, cellH * 0.28),
-        nameSize: 8 * s,
-        levelSize: 8 * s,
-        highlight: false,
-        s
-      });
+      const cx = x + 22 * s + index * step;
+      const def = weaponDef(slot);
+      const rarity = rarityFor(slot.rarity || 'common');
+
+      g.fillStyle(0x0d1522, 0.9);
+      g.fillCircle(cx, chipY, chipR);
+      g.lineStyle(2, rarity.color, 0.9);
+      g.strokeCircle(cx, chipY, chipR);
+
+      this.add
+        .text(cx, chipY - 1 * s, def ? def.emoji : '🔫', {
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          fontSize: `${Math.round(chipR * 1.1)}px`
+        })
+        .setOrigin(0.5)
+        .setDepth(3);
+
+      this.add
+        .text(cx + chipR * 0.62, chipY + chipR * 0.62, `${slot.level || 1}`, {
+          fontFamily: FONT,
+          fontSize: `${Math.round(9 * s)}px`,
+          color: COLORS.goldHex,
+          fontStyle: 'bold'
+        })
+        .setOrigin(0.5)
+        .setDepth(4);
+
+      const zone = this.add
+        .zone(cx, chipY, chipR * 2 + 6, chipR * 2 + 6)
+        .setInteractive();
+      zone.on('pointerdown', () => this.tapWeapon(index));
     });
 
     const r = Math.max(11, Math.round(14 * s));
