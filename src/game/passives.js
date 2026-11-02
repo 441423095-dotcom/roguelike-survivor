@@ -282,6 +282,61 @@ export const PASSIVE_POOL = [
     apply(state) {
       state.fireInterval = Math.max(80, state.fireInterval * 0.77);
     }
+  },
+
+  // ---------------------------------------------------- late-run power
+  {
+    key: 'core',
+    name: '虚空核心',
+    emoji: '🧿',
+    color: 0xb07bff,
+    hex: '#b07bff',
+    max: 1,
+    basePrice: 34,
+    desc: () => '弹丸 +1，并且所有子弹额外穿透 1 个敌人',
+    apply(state) {
+      state.projectiles += 1;
+      state.pierceBonus += 1;
+    }
+  },
+  {
+    key: 'crown',
+    name: '暴君王冠',
+    emoji: '👑',
+    color: 0xffd166,
+    hex: '#ffd166',
+    max: 2,
+    basePrice: 32,
+    desc: () => '全部武器伤害 +25%',
+    apply(state) {
+      state.damage *= 1.25;
+    }
+  },
+  {
+    key: 'whetstone',
+    name: '淬火磨刀石',
+    emoji: '🗡️',
+    color: 0xd7e3ea,
+    hex: '#d7e3ea',
+    max: 2,
+    basePrice: 30,
+    desc: () => '近战类武器（平底锅、飞刀、回旋镖）伤害 +35%',
+    apply(state) {
+      state.styleBonus.blade = (state.styleBonus.blade || 1) * 1.35;
+    }
+  },
+  {
+    key: 'overclock',
+    name: '超频芯片',
+    emoji: '🔥',
+    color: 0xff7a1f,
+    hex: '#ff7a1f',
+    max: 3,
+    basePrice: 30,
+    desc: () => '所有武器攻速 +12%',
+    apply(state) {
+      state.fireInterval = Math.max(80, state.fireInterval * 0.893);
+    }
   }
 ];
 

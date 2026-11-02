@@ -10,7 +10,7 @@ import { sharpenText } from '../ui/text.js';
 import { haptic } from '../haptics.js';
 import { Sfx } from '../game/audio.js';
 import { SHOP_REFRESH_COST } from '../game/shop.js';
-import { WEAPONS, WEAPON_SLOTS, weaponDef } from '../game/weapons.js';
+import { WEAPONS, WEAPON_SLOTS, weaponDef, weaponStats } from '../game/weapons.js';
 import { nextRarity, rarityFor, weaponName } from '../game/rarities.js';
 import { ITEM_BY_KEY } from '../game/passives.js';
 
@@ -26,6 +26,7 @@ export class ShopScene extends Phaser.Scene {
     this.replaceItem = null;
     this.pickedSlot = null;
     this.busy = false;
+    this.detailIndex = null;
     this.sellTarget = null;
   }
 
@@ -555,7 +556,8 @@ export class ShopScene extends Phaser.Scene {
       price: run.weaponSellPrice(slot),
       // A gun can be pushed up a tier for gold, or sold back for part of it.
       upgradeCost: run.upgradeWeaponCost ? run.upgradeWeaponCost(index) : 0,
-      upgradeName: next && def ? weaponName(def, next.key) : ''
+      upgradeName: next && def ? weaponName(def, next.key) : '',
+      desc: this.weaponDetail(slot)
     });
   }
 
@@ -570,7 +572,8 @@ export class ShopScene extends Phaser.Scene {
       kind: 'item',
       key,
       name: def.name,
-      price: run.itemSellPrice(key)
+      price: run.itemSellPrice(key),
+      desc: def.desc(this.owned(key) || 1)
     });
   }
 
@@ -624,7 +627,7 @@ export class ShopScene extends Phaser.Scene {
     const s = computeLayout(W, H).uiScale;
 
     const panelW = Math.min(W - 60, 320 * s);
-    const panelH = Math.round(186 * s);
+    const panelH = Math.round(246 * s);
     const cx = W / 2;
     const cy = H / 2;
 
@@ -676,6 +679,21 @@ export class ShopScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setDepth(22);
+
+    // The full detail line, so an owned gun can be inspected as well as sold.
+    if (target.desc) {
+      this.add
+        .text(cx, cy - panelH / 2 + 104 * s, target.desc, {
+          fontFamily: FONT,
+          fontSize: `${Math.round(11 * s)}px`,
+          color: COLORS.dim,
+          align: 'center',
+          wordWrap: { width: panelW - 30 * s },
+          lineSpacing: Math.round(3 * s)
+        })
+        .setOrigin(0.5, 0)
+        .setDepth(22);
+    }
 
     // Upgrade, sell or keep it — the choice is always the player's.
     const actions = [];
@@ -1043,8 +1061,10 @@ export class ShopScene extends Phaser.Scene {
 
     paint();
 
+    // Pressing a card opens its details; buying happens from there, so a stray
+    // tap can never spend coins by accident.
     const zone = this.add.zone(cx, cy, w, h).setInteractive();
-    zone.on('pointerdown', () => this.buy(index));
+    zone.on('pointerdown', () => this.openDetail(index));
 
     // Created after the card's own zone, so a tap on the lock pins the card
     // instead of buying it.
@@ -1072,6 +1092,182 @@ export class ShopScene extends Phaser.Scene {
     if (ref) ref.paint();
 
     this.toast(locked ? `已锁定：${item.name}` : `已解锁：${item.name}`);
+  }
+
+  /// The numbers a gun is actually shooting at, plus its flavour line.
+  weaponDetail(slot) {
+    const run = this.run();
+    const def = weaponDef(slot);
+    if (!def) return '';
+
+    const parts = [];
+    if (run && run.state) {
+      const stats = weaponStats(slot, run.state);
+      if (stats) {
+        parts.push(`伤害 ${Math.round(stats.damage)}`);
+        parts.push(`间隔 ${(stats.interval / 1000).toFixed(2)} 秒`);
+        parts.push(`射程 ${Math.round(stats.range)}`);
+        if (stats.pierce) parts.push(`穿透 ${stats.pierce}`);
+      }
+    }
+    if (def.note) parts.push(def.note);
+    return parts.join(' · ');
+  }
+
+  /// One line for the second row of a card's sheet: level for a gun, kind and
+  /// stack count for a trinket.
+  itemGrade(item) {
+    if (item.kind === 'weapon') return `Lv${item.level || 1}`;
+    const stacks = Math.max(1, item.stacks || 1);
+    return `${item.active ? '主动' : '被动'}${stacks > 1 ? ` ×${stacks}` : ''}`;
+  }
+
+  /// Everything the card does, for the detail sheet.
+  itemDetail(item) {
+    if (item.kind === 'weapon') {
+      return this.weaponDetail({
+        key: item.key,
+        level: item.level || 1,
+        rarity: item.rarity
+      });
+    }
+    return item.desc;
+  }
+
+  /// Pressing a card shows what it is before any money moves: full description,
+  /// live numbers for a gun, price, and the buy / lock / close buttons.
+  openDetail(index) {
+    const item = (this.stock() || [])[index];
+    if (!item || item.sold) return;
+
+    this.detailIndex = index;
+
+    const W = this.scale.gameSize.width;
+    const H = this.scale.gameSize.height;
+    const s = computeLayout(W, H).uiScale;
+    const rarity = rarityFor(item.rarity || 'common');
+
+    const panelW = Math.min(W - 40, 340 * s);
+    const panelH = Math.round(250 * s);
+    const cx = W / 2;
+    const cy = H / 2;
+    const left = cx - panelW / 2;
+    const top = cy - panelH / 2;
+
+    const dim = this.add
+      .rectangle(cx, cy, W, H, 0x05080d, 0.72)
+      .setDepth(20)
+      .setInteractive();
+    dim.on('pointerdown', () => this.closeDetail());
+
+    const panel = this.add.graphics().setDepth(21);
+    panel.fillStyle(0x0d1522, 0.99);
+    panel.fillRoundedRect(left, top, panelW, panelH, 16);
+    panel.lineStyle(2, rarity.color, 0.55);
+    panel.strokeRoundedRect(left, top, panelW, panelH, 16);
+
+    this.add
+      .text(left + 18 * s, top + 32 * s, item.emoji || '❓', {
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        fontSize: `${Math.round(26 * s)}px`
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(22);
+
+    this.add
+      .text(left + 58 * s, top + 26 * s, item.name, {
+        fontFamily: FONT,
+        fontSize: `${Math.round(18 * s)}px`,
+        color: COLORS.ink,
+        fontStyle: 'bold'
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(22);
+
+    this.add
+      .text(left + 58 * s, top + 48 * s, `${rarity.name} · ${this.itemGrade(item)}`, {
+        fontFamily: FONT,
+        fontSize: `${Math.round(11 * s)}px`,
+        color: rarity.hex
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(22);
+
+    this.add
+      .text(left + 18 * s, top + 70 * s, this.itemDetail(item), {
+        fontFamily: FONT,
+        fontSize: `${Math.round(11 * s)}px`,
+        color: COLORS.dim,
+        wordWrap: { width: panelW - 36 * s },
+        lineSpacing: Math.round(3 * s)
+      })
+      .setOrigin(0, 0)
+      .setDepth(22);
+
+    this.add
+      .image(left + 26 * s, cy + panelH / 2 - 62 * s, 'coin')
+      .setDisplaySize(14 * s, 14 * s)
+      .setDepth(22);
+    this.add
+      .text(left + 38 * s, cy + panelH / 2 - 62 * s, String(item.price), {
+        fontFamily: FONT,
+        fontSize: `${Math.round(15 * s)}px`,
+        color: COLORS.goldHex,
+        fontStyle: 'bold'
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(22);
+
+    const full = this.blockReason(index) === 'full';
+    const actions = [
+      {
+        label: full ? '更换…' : `购买 ${item.price}`,
+        accent: COLORS.gold,
+        onPress: () => {
+          this.detailIndex = null;
+          this.buy(index);
+        }
+      },
+      {
+        label: item.locked ? '解锁' : '锁定',
+        accent: 0xffd166,
+        onPress: () => {
+          const locked = this.run().toggleShopLock(index);
+          this.detailIndex = null;
+          haptic('tick');
+          this.toast(locked ? `已锁定：${item.name}` : `已解锁：${item.name}`);
+          this.scheduleRebuild();
+        }
+      },
+      {
+        label: '关闭',
+        accent: 0x2bd3c4,
+        onPress: () => this.closeDetail()
+      }
+    ];
+
+    const sideGap = 10 * s;
+    const buttonW = (panelW - sideGap * (actions.length + 1)) / actions.length;
+    actions.forEach((action, i) => {
+      makeButton(this, {
+        x: left + sideGap * (i + 1) + buttonW * (i + 0.5),
+        y: cy + panelH / 2 - 30 * s,
+        width: buttonW,
+        height: Math.round(38 * s),
+        label: action.label,
+        fontSize: Math.round(12 * s),
+        accent: action.accent,
+        depth: 22,
+        onPress: action.onPress
+      });
+    });
+
+    sharpenText(this);
+  }
+
+  closeDetail() {
+    this.detailIndex = null;
+    this.scheduleRebuild();
   }
 
   /// Why a card cannot be bought right now: '' when it can, otherwise a code

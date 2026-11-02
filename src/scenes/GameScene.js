@@ -1086,7 +1086,7 @@ export class GameScene extends Phaser.Scene {
 
     if (now < chargeUntil) {
       const angle = boss.getData('chargeAngle') || 0;
-      boss.body.velocity.set(Math.cos(angle) * 640, Math.sin(angle) * 640);
+      boss.body.velocity.set(Math.cos(angle) * 560, Math.sin(angle) * 560);
       return;
     }
 
@@ -2959,8 +2959,9 @@ export class GameScene extends Phaser.Scene {
     const jitter =
       def.behaviour === 'boss' ? 1 : Phaser.Math.FloatBetween(0.85, 1.25);
     enemy.setData('speed', def.speed * scale.speed * jitter);
-    // A boss hits harder than the tier it stands in.
-    const hitBoost = def.behaviour === 'boss' ? 1.15 : 1;
+    // A boss hits harder than the tier it stands in, but only slightly: one
+    // charge should cost a chunk of health, never the whole run.
+    const hitBoost = def.behaviour === 'boss' ? 1.05 : 1;
     enemy.setData(
       'damage',
       Math.round(def.damage * scale.damage * hitBoost * this.difficulty.damage)

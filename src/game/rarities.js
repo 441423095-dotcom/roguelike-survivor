@@ -86,7 +86,11 @@ const WEAPON_BASE_PRICE = {
   mushroom: 28,
   laser: 30,
   sniper: 32,
-  rocket: 32
+  rocket: 32,
+  void: 46,
+  plasma: 42,
+  rail: 50,
+  storm: 44
 };
 
 export function rarityFor(key) {
