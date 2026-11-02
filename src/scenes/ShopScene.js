@@ -208,7 +208,7 @@ export class ShopScene extends Phaser.Scene {
       shelves.push({ label: `武器 · ${guns.length}`, cards: guns });
     }
 
-    const colGap = Math.round(8 * s);
+    const colGap = Math.round(16 * s);
     const cellW = (cardW - colGap) / 2;
     const rowsFor = (count) => Math.ceil(count / 2);
     const totalRows = shelves.reduce(
@@ -216,18 +216,17 @@ export class ShopScene extends Phaser.Scene {
       0
     );
 
-    const rowGap = Math.round(7 * s);
+    const rowGap = Math.round(16 * s);
     const avail = Math.max(200, areaBottom - areaTop);
-    // The floor is low on purpose: a short phone shrinks the cards instead of
-    // letting the last row slide under the gear strip below it.
-    const cellH = Math.max(
-      40,
-      Math.min(
-        100 * s,
-        (avail - labelH * shelves.length - rowGap * (totalRows + shelves.length)) /
-          Math.max(1, totalRows)
-      )
+    // Cards are deliberately shorter than the space the shelf has: the leftover
+    // is the breathing room that keeps the grid from feeling packed, and wider
+    // gaps between cells give each one its own outline.
+    const rawH = Math.min(
+      92 * s,
+      (avail - labelH * shelves.length - rowGap * (totalRows + shelves.length)) /
+        Math.max(1, totalRows)
     );
+    const cellH = Math.max(38, Math.round(rawH * 0.8));
 
     let y = areaTop;
 
@@ -898,7 +897,7 @@ export class ShopScene extends Phaser.Scene {
     const priceText = this.add
       .text(priceX, priceY, '', {
         fontFamily: FONT,
-        fontSize: `${Math.round(13 * s)}px`,
+        fontSize: `${Math.round(12 * s)}px`,
         color: hex,
         fontStyle: 'bold'
       })
@@ -916,9 +915,9 @@ export class ShopScene extends Phaser.Scene {
       .setDepth(3)
       .setVisible(false);
 
-    const iconSize = Math.min(19 * s, h * 0.3);
+    const iconSize = Math.min(17 * s, h * 0.3);
     const iconX = left + 9 * s + iconSize / 2;
-    const iconY = top + 10 * s + iconSize / 2;
+    const iconY = top + 9 * s + iconSize / 2;
 
     this.add
       .text(iconX, iconY, item.emoji || '❓', {
@@ -933,11 +932,11 @@ export class ShopScene extends Phaser.Scene {
     this.add
       .text(textX, iconY, item.name, {
         fontFamily: FONT,
-        fontSize: `${Math.round(13 * s)}px`,
+        fontSize: `${Math.round(12.5 * s)}px`,
         color: COLORS.ink,
         fontStyle: 'bold',
         stroke: '#04070c',
-        strokeThickness: Math.max(2, Math.round(2.5 * s))
+        strokeThickness: Math.max(2, Math.round(2 * s))
       })
       .setOrigin(0, 0.5)
       .setDepth(3);
@@ -947,12 +946,12 @@ export class ShopScene extends Phaser.Scene {
     const descText = this.add
       .text(
         left + 9 * s,
-        top + 27 * s,
+        top + 24 * s,
         '',
         {
           fontFamily: FONT,
-          fontSize: `${Math.round(11 * s)}px`,
-          color: '#d6e3ee',
+          fontSize: `${Math.round(10.5 * s)}px`,
+          color: '#cfdde9',
           wordWrap: { width: Math.max(60, w - 18 * s), useAdvancedWrap: true },
           lineSpacing: Math.round(1 * s)
         }
@@ -960,10 +959,10 @@ export class ShopScene extends Phaser.Scene {
       .setOrigin(0, 0)
       .setDepth(3);
 
-    const descLineH = Math.max(10, Math.round(11.5 * s));
+    const descLineH = Math.max(9, Math.round(11 * s));
     const descLines = Math.max(
       1,
-      Math.min(2, Math.floor((h - 30 * s) / descLineH))
+      Math.min(2, Math.floor((h - 26 * s) / descLineH))
     );
     this.fitLines(
       descText,
@@ -1008,44 +1007,49 @@ export class ShopScene extends Phaser.Scene {
       const affordable = this.coins() >= item.price;
       const locked = !!item.locked;
 
-      // The fill is the tier colour dropped almost to black, so a green card is
-      // deep green and a gold one is deep brown even before the border is read.
-      const fill = this.darkTint(color, item.sold ? 0.12 : 0.3);
+      // A whisper of the tier colour over near-black glass, so the shelf behind
+      // stays faintly visible instead of being blocked by a solid slab.
+      const tint = this.darkTint(color, item.sold ? 0.1 : 0.24);
 
       g.clear();
-      g.fillStyle(fill, 1);
-      g.fillRoundedRect(left, top, w, h, 12);
+      g.fillStyle(0x04070c, item.sold ? 0.72 : 0.58);
+      g.fillRoundedRect(left, top, w, h, 10);
+      g.fillStyle(tint, 0.5);
+      g.fillRoundedRect(left, top, w, h, 10);
 
       // A dark band behind the price, so the number is the brightest thing left
       // in that corner.
-      g.fillStyle(0x03060a, 0.55);
+      g.fillStyle(0x03060a, 0.5);
       g.fillRoundedRect(right - 62 * s, bottom - 18 * s, 56 * s, 16 * s, 6);
 
-      // Thick border with a hairline just inside it: a cut-gem edge.
-      g.lineStyle(3, item.sold ? 0x39a05a : locked ? COLORS.gold : color, item.sold ? 0.5 : 1);
-      g.strokeRoundedRect(left, top, w, h, 12);
-      g.lineStyle(1, 0xffffff, 0.1);
-      g.strokeRoundedRect(left + 3, top + 3, w - 6, h - 6, 9);
+      // A fine, dim border by default; gold and bright only once the card is
+      // pinned.
+      g.lineStyle(
+        2,
+        item.sold ? 0x39a05a : locked ? COLORS.gold : color,
+        item.sold ? 0.3 : locked ? 0.95 : 0.5
+      );
+      g.strokeRoundedRect(left, top, w, h, 10);
 
-      // The glow behind the card, growing with the tier.
-      const spread = 3 + item.rank * 2;
+      // The glow behind the card, a soft hint rather than a halo.
+      const spread = 2 + item.rank * 2;
       glowG.clear();
       if (!item.sold) {
-        glowG.fillStyle(color, 0.05 + item.rank * 0.035);
+        glowG.fillStyle(color, 0.03 + item.rank * 0.02);
         glowG.fillRoundedRect(
           left - spread,
           top - spread,
           w + spread * 2,
           h + spread * 2,
-          16
+          14
         );
-        glowG.lineStyle(2 + item.rank, color, 0.18 + item.rank * 0.06);
+        glowG.lineStyle(1 + item.rank, color, 0.1 + item.rank * 0.04);
         glowG.strokeRoundedRect(
           left - spread,
           top - spread,
           w + spread * 2,
           h + spread * 2,
-          16
+          14
         );
       }
 
