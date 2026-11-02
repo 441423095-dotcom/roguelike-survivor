@@ -800,9 +800,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   /// Steering, the simple way: the direction from where the drag started to
-  /// where the finger is now, at the character's own speed. The pointer is read
-  /// straight off the live input every frame (no pointermove handler, no object
-  /// allocations, one sqrt, no lerp, no effects).
+  /// where the finger is now. The pointer is read straight off the live input
+  /// every frame (no pointermove handler, no allocations, one sqrt, no lerp),
+  /// the dead zone is small so movement starts almost at once, and pushing
+  /// further from the origin gives a little extra speed — a gentle nudge towards
+  /// the thumb rather than the old teleport.
   updateMovement(time) {
     const p = this.joyPointer;
 
@@ -811,14 +813,25 @@ export class GameScene extends Phaser.Scene {
       const dy = p.y - this.joyOriginY;
       const distSq = dx * dx + dy * dy;
 
-      if (distSq > 64) {
-        const inv = 1 / Math.sqrt(distSq);
+      // 4px dead zone: the old 8px felt like the character was waiting for you.
+      if (distSq > 16) {
+        const dist = Math.sqrt(distSq);
+        const inv = 1 / dist;
         this.joyDir.set(dx * inv, dy * inv);
         this.lastDir.copy(this.joyDir);
-        this.player.setVelocity(
-          this.joyDir.x * this.state.speed,
-          this.joyDir.y * this.state.speed
-        );
+
+        const reach = Math.min(1, dist / 140);
+        const speed = this.state.speed * (0.9 + 0.35 * reach);
+        this.player.setVelocity(this.joyDir.x * speed, this.joyDir.y * speed);
+
+        // Keep the stick under a comfortable radius: past it the origin trails
+        // the finger, so a long drag keeps the same direction and speed instead
+        // of demanding ever-longer swipes.
+        const maxDrag = 120;
+        if (dist > maxDrag) {
+          this.joyOriginX = p.x - dx * inv * maxDrag;
+          this.joyOriginY = p.y - dy * inv * maxDrag;
+        }
       } else {
         this.joyDir.set(0, 0);
         this.player.setVelocity(0, 0);
