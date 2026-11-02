@@ -19,6 +19,12 @@ export function makeButton(scene, opts) {
     fill = 0x0a1018,
     fontSize = 17,
     depth = 10,
+    // A quiet button is a physical key rather than a lit sign: no halo, a
+    // near-black face at half strength and a hairline edge. quietStrength
+    // scales the edge brightness so one of a row can read as the primary.
+    quiet = false,
+    quietStrength = 1,
+    textColor = null,
     onPress
   } = opts;
 
@@ -49,26 +55,46 @@ export function makeButton(scene, opts) {
     g.clear();
 
     path();
-    g.fillStyle(pressed ? 0x12222e : fill, pressed ? 0.96 : 0.82);
+    g.fillStyle(
+      pressed ? (quiet ? 0x0d1820 : 0x12222e) : fill,
+      quiet ? (pressed ? 0.62 : 0.5) : (pressed ? 0.96 : 0.82)
+    );
     g.fillPath();
 
-    // Three passes: a wide dim halo, a mid glow, then the bright tube itself.
-    path();
-    g.lineStyle(9, accent, pressed ? 0.22 : 0.1);
-    g.strokePath();
+    if (quiet) {
+      // Two hairline passes, both dim: enough to read the shape, no tube.
+      path();
+      g.lineStyle(2.5, accent, (pressed ? 0.3 : 0.16) * quietStrength);
+      g.strokePath();
 
-    path();
-    g.lineStyle(4, accent, pressed ? 0.5 : 0.26);
-    g.strokePath();
+      path();
+      g.lineStyle(1.1, accent, (pressed ? 0.62 : 0.34) * quietStrength);
+      g.strokePath();
+    } else {
+      // Three passes: a wide dim halo, a mid glow, then the bright tube itself.
+      path();
+      g.lineStyle(9, accent, pressed ? 0.22 : 0.1);
+      g.strokePath();
 
-    path();
-    g.lineStyle(1.5, accent, pressed ? 1 : 0.62);
-    g.strokePath();
+      path();
+      g.lineStyle(4, accent, pressed ? 0.5 : 0.26);
+      g.strokePath();
+
+      path();
+      g.lineStyle(1.5, accent, pressed ? 1 : 0.62);
+      g.strokePath();
+    }
 
     // A little spark on the cut corner.
-    g.lineStyle(2, accent, pressed ? 1 : 0.7);
+    g.lineStyle(
+      2,
+      accent,
+      quiet ? (pressed ? 0.52 : 0.26) * quietStrength : (pressed ? 1 : 0.7)
+    );
     g.lineBetween(right - cut, top, right, top + cut);
   };
+
+  const ink = textColor || (quiet ? '#c2d0d8' : '#eafcff');
 
   paint(false);
 
@@ -89,12 +115,12 @@ export function makeButton(scene, opts) {
       .text(icon ? left + height * 0.95 : x, y, label, {
         fontFamily: FONT,
         fontSize: `${fontSize}px`,
-        color: '#eafcff',
+        color: ink,
         fontStyle: '600'
       })
       .setOrigin(icon ? 0 : 0.5, 0.5)
       .setDepth(depth);
-    text.setShadow(0, 0, '#2bd3c4', 8, true, true);
+    if (!quiet) text.setShadow(0, 0, '#2bd3c4', 8, true, true);
     items.push(text);
   }
 
@@ -104,8 +130,8 @@ export function makeButton(scene, opts) {
     paint(pressed);
     if (image) image.setAlpha(pressed ? 1 : 0.9);
     if (text) {
-      text.setColor(pressed ? '#ffffff' : '#eafcff');
-      text.setShadow(0, 0, '#2bd3c4', pressed ? 16 : 8, true, true);
+      text.setColor(pressed ? '#ffffff' : ink);
+      if (!quiet) text.setShadow(0, 0, '#2bd3c4', pressed ? 16 : 8, true, true);
     }
   };
 

@@ -1307,25 +1307,33 @@ export class ShopScene extends Phaser.Scene {
       .on('pointerdown', () => {});
 
     this.add
-      .text(left + 18 * s, top + 32 * s, item.emoji || '❓', {
+      .text(left + 18 * s, top + 34 * s, item.emoji || '❓', {
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: `${Math.round(26 * s)}px`
+        fontSize: `${Math.round(31 * s)}px`
       })
       .setOrigin(0, 0.5)
       .setDepth(22);
 
-    this.add
-      .text(left + 58 * s, top + 26 * s, item.name, {
+    const nameText = this.add
+      .text(left + 62 * s, top + 27 * s, item.name, {
         fontFamily: FONT,
-        fontSize: `${Math.round(18 * s)}px`,
+        fontSize: `${Math.round(21 * s)}px`,
         color: COLORS.ink,
         fontStyle: 'bold'
       })
       .setOrigin(0, 0.5)
       .setDepth(22);
 
+    // A long name steps down in size rather than running over the sheet.
+    const nameRoom = panelW - 84 * s;
+    if (nameText.width > nameRoom) {
+      nameText.setFontSize(
+        Math.max(12, Math.round(21 * s * (nameRoom / nameText.width)))
+      );
+    }
+
     this.add
-      .text(left + 58 * s, top + 48 * s, `${rarity.name} · ${this.itemGrade(item)}`, {
+      .text(left + 62 * s, top + 50 * s, `${rarity.name} · ${this.itemGrade(item)}`, {
         fontFamily: FONT,
         fontSize: `${Math.round(11 * s)}px`,
         color: rarity.hex
@@ -1334,7 +1342,7 @@ export class ShopScene extends Phaser.Scene {
       .setDepth(22);
 
     const detailText = this.add
-      .text(left + 18 * s, top + 70 * s, '', {
+      .text(left + 18 * s, top + 72 * s, '', {
         fontFamily: FONT,
         fontSize: `${Math.round(11 * s)}px`,
         color: '#d6e3ee',
@@ -1347,11 +1355,11 @@ export class ShopScene extends Phaser.Scene {
     this.fitLines(detailText, this.itemDetail(item), 5);
 
     this.add
-      .image(left + 26 * s, cy + panelH / 2 - 62 * s, 'coin')
+      .image(left + 26 * s, cy + panelH / 2 - 66 * s, 'coin')
       .setDisplaySize(14 * s, 14 * s)
       .setDepth(22);
     this.add
-      .text(left + 38 * s, cy + panelH / 2 - 62 * s, String(item.price), {
+      .text(left + 38 * s, cy + panelH / 2 - 66 * s, String(item.price), {
         fontFamily: FONT,
         fontSize: `${Math.round(15 * s)}px`,
         color: COLORS.goldHex,
@@ -1364,7 +1372,10 @@ export class ShopScene extends Phaser.Scene {
     const actions = [
       {
         label: full ? '更换…' : `购买 ${item.price}`,
-        accent: COLORS.gold,
+        // The primary key: still quiet, only a shade warmer and brighter.
+        accent: 0xb8912f,
+        strength: 1.25,
+        textColor: '#e6d6a4',
         onPress: () => {
           this.detailIndex = null;
           this.buy(index);
@@ -1372,7 +1383,9 @@ export class ShopScene extends Phaser.Scene {
       },
       {
         label: item.locked ? '解锁' : '锁定',
-        accent: 0xffd166,
+        accent: 0x8fa3b0,
+        strength: 0.85,
+        textColor: '#b6c4cc',
         onPress: () => {
           const locked = this.run().toggleShopLock(index);
           this.detailIndex = null;
@@ -1383,22 +1396,29 @@ export class ShopScene extends Phaser.Scene {
       },
       {
         label: '关闭',
-        accent: 0x2bd3c4,
+        accent: 0x3d7a80,
+        strength: 0.85,
+        textColor: '#a6bcc0',
         onPress: () => this.closeDetail()
       }
     ];
 
-    const sideGap = 10 * s;
+    const sideGap = 14 * s;
     const buttonW = (panelW - sideGap * (actions.length + 1)) / actions.length;
+    const buttonH = Math.round(32 * s);
     actions.forEach((action, i) => {
       makeButton(this, {
         x: left + sideGap * (i + 1) + buttonW * (i + 0.5),
-        y: cy + panelH / 2 - 30 * s,
+        y: cy + panelH / 2 - 14 * s - buttonH / 2,
         width: buttonW,
-        height: Math.round(38 * s),
+        height: buttonH,
         label: action.label,
         fontSize: Math.round(12 * s),
         accent: action.accent,
+        textColor: action.textColor,
+        fill: 0x05080b,
+        quiet: true,
+        quietStrength: action.strength,
         depth: 22,
         onPress: action.onPress
       });
