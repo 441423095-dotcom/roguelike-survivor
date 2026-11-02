@@ -106,47 +106,94 @@ export class HudScene extends Phaser.Scene {
     sharpenText(this);
   }
 
-  /// A red rim that throbs once the player is nearly dead, so a low health bar
-  /// is felt as well as read.
+  /// 濒死警告: a red rim that hugs the screen edges. It is a whisper below 30%
+  /// health and a breathing, pulsing warning below 15%, and it is gone the
+  /// moment the bar climbs back over the line.
   buildDangerLayer() {
     const L = this.layout;
+    const s = L.uiScale;
     const g = this.add.graphics().setDepth(6).setAlpha(0);
 
-    for (let i = 0; i < 5; i++) {
-      const inset = i * Math.max(4, Math.round(6 * L.uiScale));
-      g.lineStyle(7, 0xff2b45, 0.2 - i * 0.032);
-      g.strokeRect(inset, inset, L.width - inset * 2, L.height - inset * 2);
+    // No gradients in a Graphics object, so the vignette is a stack of thin
+    // outlines that fade as they move inwards from the edge.
+    const bands = 14;
+    const band = Math.max(3, Math.round(4.5 * s));
+
+    for (let i = 0; i < bands; i++) {
+      const t = 1 - i / bands;
+      const inset = i * band * 0.85;
+
+      g.lineStyle(band * 2.6, 0xff1f36, 0.09 * t * t);
+      g.strokeRoundedRect(
+        inset,
+        inset,
+        L.width - inset * 2,
+        L.height - inset * 2,
+        Math.round(16 * s)
+      );
+
+      g.lineStyle(band * 5.5, 0xff1f36, 0.018 * t);
+      g.strokeRoundedRect(
+        inset,
+        inset,
+        L.width - inset * 2,
+        L.height - inset * 2,
+        Math.round(16 * s)
+      );
     }
 
     this.dangerGfx = g;
-    this.dangerShown = false;
+    this.dangerLevel = 0;
+    this.nextBeat = 0;
+    this.nextShiver = 0;
   }
 
   updateDanger(run) {
-    if (!this.dangerGfx) return;
+    const g = this.dangerGfx;
+    if (!g) return;
 
     const s = run.state;
     const ratio = s.maxHp > 0 ? s.hp / s.maxHp : 1;
-    const low = !!run.running && ratio < 0.2;
+    const busy = !run.running || run.shopOpen || run.choiceOpen || run.pausedByUser;
+    const level = busy ? 0 : ratio < 0.15 ? 2 : ratio < 0.3 ? 1 : 0;
 
-    if (!low) {
-      if (this.dangerShown) {
-        this.dangerShown = false;
-        this.dangerGfx.setAlpha(0);
+    if (level === 0) {
+      if (this.dangerLevel !== 0) {
+        this.dangerLevel = 0;
+        g.setAlpha(0);
       }
       return;
     }
 
-    this.dangerShown = true;
+    const now = this.time.now;
+    // 怜悯掉落: the game stamps this when a mercy heart drops, so the rim can
+    // flare at exactly that moment.
+    const mercy = run.mercyGlowAt || 0;
+    const flare = now - mercy < 700 ? 1 - (now - mercy) / 700 : 0;
 
-    // The closer to zero, the harder the rim pulses.
-    const depth = 1 - Math.max(0, ratio) / 0.2;
-    const pulse = 0.5 + 0.5 * Math.sin(this.time.now / 150);
-    this.dangerGfx.setAlpha(0.3 + 0.55 * pulse * (0.45 + 0.55 * depth));
+    this.dangerLevel = level;
 
-    if (this.time.now > this.nextBeat) {
-      this.nextBeat = this.time.now + 900;
+    if (level === 1) {
+      // Under a third health: a faint, steady glow.
+      g.setAlpha(0.5 + 0.45 * flare);
+      this.nextBeat = 0;
+      return;
+    }
+
+    // Under 15%: the glow deepens and breathes.
+    const beat = 0.5 + 0.5 * Math.sin(now / 260);
+    g.setAlpha(Math.min(1, 0.62 + 0.38 * beat + 0.45 * flare));
+
+    if (now > this.nextBeat) {
+      this.nextBeat = now + 900;
       Sfx.heartbeat();
+    }
+
+    // A very slight tremble, just enough to be felt behind the pulse.
+    const game = this.scene.get('Game');
+    if (game && game.running && now > this.nextShiver) {
+      this.nextShiver = now + 1800;
+      game.cameras.main.shake(90, 0.0016);
     }
   }
 

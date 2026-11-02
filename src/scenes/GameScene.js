@@ -106,6 +106,11 @@ export class GameScene extends Phaser.Scene {
     this.hapticAt = 0;
     this.facing = 0;
 
+    // 濒死怜悯掉率: one mercy heart starts this cooldown, and the HUD watches
+    // `mercyGlowAt` to flare its red rim at the same moment.
+    this.mercyUntil = 0;
+    this.mercyGlowAt = 0;
+
     this.joyDir = new Phaser.Math.Vector2(0, 0);
     // Where the drag started: plain numbers, so the per-frame steering never
     // allocates anything.
@@ -3396,16 +3401,35 @@ export class GameScene extends Phaser.Scene {
   spawnTick() {
     if (!this.running || this.waveEnding) return;
 
-    // A heart on the floor, more likely the deeper and harder the run gets.
-    const heartChance =
-      Math.min(0.22, 0.02 + this.state.wave * 0.008) *
-      (this.difficulty.hp || 1);
-    if (Math.random() < heartChance) this.dropHeart();
+    this.maybeDropHeart();
 
     const plan = waveSpawnPlan(this.state.wave);
     if (this.enemies.countActive(true) >= plan.cap) return;
 
     for (let i = 0; i < plan.count; i++) this.spawnEnemy();
+  }
+
+  /// A heart on the floor, more likely the deeper and harder the run gets. Below
+  /// a third health the rate climbs hard, but a single mercy drop starts a ten
+  /// second cooldown, so a nearly dead player cannot farm hearts by staying low.
+  maybeDropHeart() {
+    const s = this.state;
+    const base =
+      Math.min(0.22, 0.02 + s.wave * 0.008) * (this.difficulty.hp || 1);
+
+    const now = this.time.now;
+    const inDanger = s.maxHp > 0 && s.hp / s.maxHp < 0.3;
+    const mercy = inDanger && now >= (this.mercyUntil || 0);
+
+    const chance = mercy ? Math.min(0.6, base * 2.5) : base;
+    if (Math.random() >= chance) return;
+
+    this.dropHeart();
+
+    if (!mercy) return;
+
+    this.mercyUntil = now + 10000;
+    this.mercyGlowAt = now;
   }
 
   spawnEnemy() {
