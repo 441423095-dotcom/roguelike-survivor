@@ -2611,13 +2611,9 @@ export class GameScene extends Phaser.Scene {
     this.dropPickup('coin', 'coin', value, x, y, spread);
   }
 
-  /// A rare heart on the floor: walk over it and a chunk of health comes back.
-  /// Only one is ever lying around, so it reads as a gift rather than scenery.
+  /// A small solid heart on the floor: walk over it and a chunk of health comes
+  /// back. Coin-sized, so it reads as a pickup rather than a landmark.
   dropHeart() {
-    if (this.pickups.some((pickup) => pickup.getData('kind') === 'heart')) {
-      return false;
-    }
-
     const field = this.layout.field;
     const top = (this.safeTop || 0) + 50;
     const x = Phaser.Math.Between(40, Math.max(50, field.width - 40));
@@ -2626,19 +2622,21 @@ export class GameScene extends Phaser.Scene {
       Math.max(this.safeTop + 60, field.height - 70)
     );
 
-    const heart = this.add
-      .image(x, y, 'icon-heart')
-      .setDepth(2)
-      .setTint(0xff5a72)
-      .setScale(0.9);
+    const heart = this.add.graphics().setDepth(2);
+    heart.fillStyle(0xff4d6a, 1);
+    heart.fillCircle(-3.6, -2.4, 4.6);
+    heart.fillCircle(3.6, -2.4, 4.6);
+    heart.fillTriangle(-7.6, -0.4, 7.6, -0.4, 0, 8);
+    heart.setPosition(x, y);
+    heart.setScale(0.95);
 
     heart.setData('kind', 'heart');
     heart.setData('value', Math.round(this.state.maxHp * 0.12) + 6);
 
     this.tweens.add({
       targets: heart,
-      scale: 1.1,
-      duration: 700,
+      scale: 1.15,
+      duration: 650,
       yoyo: true,
       repeat: -1
     });
@@ -2910,8 +2908,11 @@ export class GameScene extends Phaser.Scene {
   spawnTick() {
     if (!this.running || this.waveEnding) return;
 
-    // A rare heart on the floor: a bad wave can still be pulled back.
-    if (Math.random() < 0.06) this.dropHeart();
+    // A heart on the floor, more likely the deeper and harder the run gets.
+    const heartChance =
+      Math.min(0.22, 0.02 + this.state.wave * 0.008) *
+      (this.difficulty.hp || 1);
+    if (Math.random() < heartChance) this.dropHeart();
 
     const plan = waveSpawnPlan(this.state.wave);
     if (this.enemies.countActive(true) >= plan.cap) return;

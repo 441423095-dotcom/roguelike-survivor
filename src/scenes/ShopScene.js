@@ -906,10 +906,10 @@ export class ShopScene extends Phaser.Scene {
       .setDisplaySize(lockSize * 0.8, lockSize * 0.8)
       .setDepth(5);
 
-    // Every price sits on one baseline in the bottom-right corner of its cell,
-    // with the coin tucked against the number, so the grid reads as columns.
-    const priceX = right - 9 * s;
-    const priceY = bottom - 11 * s;
+    // The price sits on the name row, right-aligned and clear of the lock, so
+    // the whole width underneath is free for the card's one-line intro.
+    const priceX = right - 30 * s;
+    const priceY = top + 20 * s;
 
     const coinIcon = this.add
       .image(priceX - 24 * s, priceY, 'coin')
@@ -962,7 +962,7 @@ export class ShopScene extends Phaser.Scene {
       .setDepth(3);
 
     const tagText = this.add
-      .text(textX, iconY + Math.round(13 * s), '', {
+      .text(textX, top + 26 * s, '', {
         fontFamily: FONT,
         fontSize: `${Math.round(9 * s)}px`,
         color: hex
@@ -985,10 +985,10 @@ export class ShopScene extends Phaser.Scene {
 
     paintTag();
 
-    // The description takes whatever room is left between the tag and the
-    // price; on a very short card it is dropped rather than made to collide.
+    // The one-line intro always shows: it starts right under the tag and uses
+    // whatever height the cell has, with more lines on taller cards.
     const descText = this.add
-      .text(left + 9 * s, top + Math.round(38 * s), item.desc, {
+      .text(left + 9 * s, top + 32 * s, item.desc, {
         fontFamily: FONT,
         fontSize: `${Math.round(9.5 * s)}px`,
         color: COLORS.dim,
@@ -998,7 +998,10 @@ export class ShopScene extends Phaser.Scene {
       .setOrigin(0, 0)
       .setDepth(3);
 
-    if (descText.setMaxLines) descText.setMaxLines(2);
+    if (descText.setMaxLines) {
+      const lines = h >= 84 * s ? 3 : h >= 56 * s ? 2 : 1;
+      descText.setMaxLines(lines);
+    }
 
     const paintLock = () => {
       const locked = !!item.locked;
@@ -1052,8 +1055,7 @@ export class ShopScene extends Phaser.Scene {
 
       soldText.setVisible(item.sold);
 
-      const room = Math.round(38 * s) + descText.height < h - 18 * s;
-      descText.setVisible(!item.sold && room);
+      descText.setVisible(!item.sold && h >= 40 * s);
 
       paintLock();
       paintTag();
