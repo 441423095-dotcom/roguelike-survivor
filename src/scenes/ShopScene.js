@@ -10,6 +10,8 @@ import { sharpenText } from '../ui/text.js';
 import { haptic } from '../haptics.js';
 import { Sfx } from '../game/audio.js';
 import { SHOP_REFRESH_COST } from '../game/shop.js';
+import { WEAPONS } from '../game/weapons.js';
+import { mergeCost, nextRarity, weaponName } from '../game/rarities.js';
 
 export class ShopScene extends Phaser.Scene {
   constructor() {
@@ -147,7 +149,23 @@ export class ShopScene extends Phaser.Scene {
     // Cards, vertically centred between the header and the continue button.
     const cardW = Math.min(W - 32, 430 * s);
     const gap = Math.round(8 * s);
-    const areaTop = purseY + 22 * s;
+
+    // A mergeable pair gets its own strip above the cards.
+    const pairs = this.mergePairs();
+    const bannerH = pairs.length > 0 ? Math.round(42 * s) : 0;
+
+    if (pairs.length > 0) {
+      this.buildMergeBanner(
+        pairs[0],
+        W / 2,
+        purseY + 22 * s + bannerH / 2,
+        cardW,
+        bannerH,
+        s
+      );
+    }
+
+    const areaTop = purseY + 22 * s + (bannerH > 0 ? bannerH + 8 * s : 0);
     const areaBottom = H - 104 * s;
     const count = Math.max(1, items.length);
     const avail = Math.max(120, areaBottom - areaTop);
@@ -185,6 +203,74 @@ export class ShopScene extends Phaser.Scene {
       .setDepth(3);
 
     sharpenText(this);
+  }
+
+  /// Identical guns at the same rarity, straight from the run's weapon slots.
+  mergePairs() {
+    const run = this.run();
+    if (!run || !run.mergeablePairs) return [];
+    return run.mergeablePairs();
+  }
+
+  /// The strip that offers the pair merge, with its price and a tap target.
+  buildMergeBanner(pair, cx, cy, w, h, s) {
+    const run = this.run();
+    if (!run || !run.state) return;
+
+    const slotA = run.state.weapons[pair.a];
+    if (!slotA) return;
+
+    const def = WEAPONS[slotA.key];
+    const next = nextRarity(pair.rarity);
+    if (!def || !next) return;
+
+    const cost = mergeCost(pair.rarity);
+
+    const g = this.add.graphics().setDepth(2);
+    g.fillStyle(0x2a2413, 0.92);
+    g.fillRoundedRect(cx - w / 2, cy - h / 2, w, h, 12);
+    g.lineStyle(2, next.color, 0.6);
+    g.strokeRoundedRect(cx - w / 2, cy - h / 2, w, h, 12);
+
+    this.add
+      .text(
+        cx - w / 2 + 12 * s,
+        cy,
+        `可合成：${weaponName(def, pair.rarity)} ×2 → ${weaponName(def, next.key)}`,
+        {
+          fontFamily: FONT,
+          fontSize: `${Math.round(11 * s)}px`,
+          color: COLORS.ink,
+          fontStyle: 'bold'
+        }
+      )
+      .setOrigin(0, 0.5)
+      .setDepth(3);
+
+    makeButton(this, {
+      x: cx + w / 2 - 46 * s,
+      y: cy,
+      width: Math.round(84 * s),
+      height: Math.round(30 * s),
+      label: `合成 ${cost}`,
+      fontSize: Math.round(12 * s),
+      accent: next.color,
+      depth: 4,
+      onPress: () => this.merge(pair)
+    });
+  }
+
+  merge(pair) {
+    const run = this.run();
+    if (!run || !run.mergeWeaponPair) return;
+
+    if (!run.mergeWeaponPair(pair.a, pair.b)) {
+      haptic('tick');
+      return;
+    }
+
+    haptic('impact');
+    this.rebuild();
   }
 
   buildCard(item, index, cx, cy, w, h, s) {

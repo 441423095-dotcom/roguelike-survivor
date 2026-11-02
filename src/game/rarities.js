@@ -6,6 +6,7 @@ export const WEAPON_RARITIES = [
   {
     key: 'common',
     name: '普通',
+    word: '白色',
     rank: 0,
     color: 0xd7e3ea,
     hex: '#d7e3ea',
@@ -18,6 +19,7 @@ export const WEAPON_RARITIES = [
   {
     key: 'uncommon',
     name: '优秀',
+    word: '绿色',
     rank: 1,
     color: 0x53f08a,
     hex: '#53f08a',
@@ -30,6 +32,7 @@ export const WEAPON_RARITIES = [
   {
     key: 'rare',
     name: '稀有',
+    word: '蓝色',
     rank: 2,
     color: 0x4fb8ff,
     hex: '#4fb8ff',
@@ -42,6 +45,7 @@ export const WEAPON_RARITIES = [
   {
     key: 'epic',
     name: '史诗',
+    word: '紫色',
     rank: 3,
     color: 0xb07bff,
     hex: '#b07bff',
@@ -54,6 +58,7 @@ export const WEAPON_RARITIES = [
   {
     key: 'legendary',
     name: '传说',
+    word: '金色',
     rank: 4,
     color: 0xffd166,
     hex: '#ffd166',
@@ -133,4 +138,26 @@ export function weaponPrice(key, rarity, wave) {
   const base = WEAPON_BASE_PRICE[key] || 24;
   const raw = base * rarity.price + Math.max(0, wave - 1) * 2;
   return Math.max(15, Math.round(raw / 5) * 5);
+}
+
+
+/// The tier above this one, or null for a legendary weapon.
+export function nextRarity(key) {
+  const index = WEAPON_RARITIES.findIndex((rarity) => rarity.key === key);
+  if (index === -1 || index === WEAPON_RARITIES.length - 1) return null;
+  return WEAPON_RARITIES[index + 1];
+}
+
+/// The name a carried gun shows: "手炮" when plain, "绿色手炮" once it is
+/// anything above the base tier.
+export function weaponName(def, rarityKey) {
+  if (!def) return '';
+  const rarity = rarityFor(rarityKey);
+  return rarity.rank === 0 ? def.name : `${rarity.word}${def.name}`;
+}
+
+/// A pair merge is cheap on purpose: it is a reward for collecting duplicates.
+export function mergeCost(rarityKey) {
+  const rarity = rarityFor(rarityKey);
+  return 10 * (rarity.rank + 1);
 }

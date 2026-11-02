@@ -4,7 +4,7 @@
 
 import { ITEM_POOL, itemPrice } from './passives.js';
 import { WEAPONS, WEAPON_SLOTS } from './weapons.js';
-import { rollWeaponRarity, rarityDesc, weaponPrice } from './rarities.js';
+import { rollWeaponRarity, rarityDesc, weaponName, weaponPrice } from './rarities.js';
 
 export const SHOP_REFRESH_COST = 5;
 export const SHOP_SLOTS = 4;
@@ -63,17 +63,16 @@ function rollItems(wave, stacks, count) {
   });
 }
 
-/// Only guns the run can actually take: a spare slot for something new, or an
-/// upgrade for one already carried.
+/// Weapon cards on the shelf. Duplicates are allowed, so two of the same gun at
+/// the same tier can be collected and merged in the shop.
 function rollWeapon(wave, loadout) {
   const weapons = loadout || [];
-  const ownedKeys = weapons.map((slot) => slot.key);
   const hasFreeSlot = weapons.length < WEAPON_SLOTS;
 
   const pool = Object.keys(WEAPONS).filter((key) => {
-    const index = ownedKeys.indexOf(key);
-    if (index !== -1) return (weapons[index].level || 1) < 5;
-    return hasFreeSlot;
+    if (weapons.length === 0) return true;
+    if (hasFreeSlot) return true;
+    return weapons.some((slot) => slot.key === key);
   });
 
   if (pool.length === 0) return null;
@@ -82,21 +81,18 @@ function rollWeapon(wave, loadout) {
   const def = WEAPONS[key];
   const rarity = rollWeaponRarity(wave);
 
-  const owned = weapons.find((slot) => slot.key === key);
-  const level = owned ? Math.min(5, (owned.level || 1) + 1) : 1;
-
   return {
     kind: 'weapon',
     key,
     rarity: rarity.key,
     rarityName: rarity.name,
     rank: rarity.rank,
-    name: def.name,
+    name: weaponName(def, rarity.key),
     desc: rarityDesc(rarity),
     emoji: def.emoji,
     color: rarity.color,
     hex: rarity.hex,
-    level,
+    level: 1,
     price: weaponPrice(key, rarity, wave),
     sold: false
   };

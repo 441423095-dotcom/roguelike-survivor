@@ -16,6 +16,7 @@ import {
 import { Sfx, setMusicTrack, duckMusic } from '../game/audio.js';
 import { xpForLevel } from '../game/loot.js';
 import { rarityColor } from '../game/rarities.js';
+import { nextRarity, mergeCost } from '../game/rarities.js';
 import { recordAchievement } from '../game/achievements.js';
 import {
   metaBonuses,
@@ -107,8 +108,8 @@ export class GameScene extends Phaser.Scene {
       fireInterval: this.character.fireInterval,
       projectiles: 1,
       weapons: [
-        { key: 'blaster', level: 1 },
-        { key: 'smg', level: 1 }
+        { key: 'blaster', level: 1, rarity: 'common' },
+        { key: 'smg', level: 1, rarity: 'common' }
       ],
       range: 300,
       bulletSpeed: 480,
@@ -318,6 +319,8 @@ export class GameScene extends Phaser.Scene {
     this.itemIcons = [];
     this.itemPositions = {};
     this.chargeGfx = this.add.graphics().setDepth(22);
+    // The pulsing rings over weapons that have a merge partner.
+    this.mergeGfx = this.add.graphics().setDepth(22);
     this.skillGfx = this.add.graphics().setDepth(20);
     this.skillIcon = this.add
       .image(0, 0, 'icon-zap')
@@ -632,6 +635,7 @@ export class GameScene extends Phaser.Scene {
     this.drawDash();
     this.drawSkill();
     this.drawItemCharges();
+    this.drawMergeHints();
 
     this.shadow.setPosition(this.player.x, this.player.y + 15);
   }
@@ -1420,7 +1424,31 @@ export class GameScene extends Phaser.Scene {
     Sfx.hit();
   }
 
-  /// Nearest live enemy to an arbitrary point, used by turrets and companions.
+  /// Two identical guns at the same rarity pulse in the weapon bar, so the
+  /// player notices there is a merge waiting in the shop.
+  drawMergeHints() {
+    const g = this.mergeGfx;
+    if (!g) return;
+
+    g.clear();
+
+    const pairs = this.mergeablePairs();
+    if (pairs.length === 0) return;
+
+    const pulse = 0.5 + 0.5 * Math.sin(this.time.now / 180);
+
+    for (const pair of pairs) {
+      for (const index of [pair.a, pair.b]) {
+        const pos = this.slotPositions[index];
+        if (!pos) continue;
+
+        g.lineStyle(3, 0xffd166, 0.3 + 0.55 * pulse);
+        g.strokeCircle(pos.x, pos.y, pos.r + 3 + 2 * pulse);
+      }
+    }
+  }
+
+  /// The nearest live enemy to an arbitrary point, used by turrets and companions.
   nearestEnemyFrom(x, y, range) {
     let best = null;
     let bestDist = range;
@@ -2490,14 +2518,10 @@ export class GameScene extends Phaser.Scene {
       if ((this.items[item.key] || 0) >= (def.max || 1)) return false;
     }
 
-    // A weapon needs somewhere to go: a spare slot, or room to level up.
+    // A weapon needs a free slot; duplicates are allowed, and two of the same
+    // gun at the same rarity can be merged in the shop.
     if (item.kind === 'weapon') {
-      const owned = this.state.weapons.find((slot) => slot.key === item.key);
-      if (owned) {
-        if ((owned.level || 1) >= 5) return false;
-      } else if (this.state.weapons.length >= WEAPON_SLOTS) {
-        return false;
-      }
+      if (this.state.weapons.length >= WEAPON_SLOTS) return false;
     }
 
     this.state.coins -= item.price;
@@ -2640,6 +2664,14 @@ export class GameScene extends Phaser.Scene {
     this.slotsBox = { x, y, width, height, chip, gap, pad, cols };
     const r = chip / 2;
 
+    // Which chips have a partner waiting for a merge, so they can show the
+    // little up arrow.
+    const mergeable = new Set();
+    for (const pair of this.mergeablePairs()) {
+      mergeable.add(pair.a);
+      mergeable.add(pair.b);
+    }
+
     weapons.forEach((slot, index) => {
       const def = weaponDef(slot);
       if (!def) return;
@@ -2668,6 +2700,20 @@ export class GameScene extends Phaser.Scene {
           .setOrigin(0.5)
           .setDepth(21)
       );
+
+      if (mergeable.has(index)) {
+        this.slotIcons.push(
+          this.add
+            .text(cx + r * 0.8, cy - r * 0.85, '↑', {
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+              fontSize: `${Math.round(r * 0.95)}px`,
+              color: '#ffd166',
+              fontStyle: 'bold'
+            })
+            .setOrigin(0.5)
+            .setDepth(23)
+        );
+      }
 
       const level = Math.min(slot.level || 1, 4);
       for (let p = 0; p < level; p++) {
@@ -2750,8 +2796,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   /// Recharge arcs for the active items, redrawn each frame on their own layer.
-  drawItemCharges() {
-    const g = this.chargeGfx;
+  drawItemCharges() {    const g = this.chargeGfx;
     if (!g) return;
 
     g.clear();
@@ -2916,28 +2961,84 @@ export class GameScene extends Phaser.Scene {
     this.scene.resume();
   }
 
-  /// Equips the weapon bought from the wave shop: a fresh gun takes a free slot,
-  /// a duplicate levels up, and the rarity it was bought at sticks to it.
+  /// Equips the weapon bought from the wave shop. Duplicates are kept as their
+  /// own slot so a pair can be merged into a higher tier.
   buyWeapon(item) {
     const def = WEAPONS[item.key];
     if (!def) return false;
+    if (this.state.weapons.length >= WEAPON_SLOTS) return false;
 
-    const owned = this.state.weapons.find((slot) => slot.key === item.key);
-
-    if (owned) {
-      owned.level = Math.min(5, (owned.level || 1) + 1);
-      if (item.rarity) owned.rarity = item.rarity;
-    } else {
-      if (this.state.weapons.length >= WEAPON_SLOTS) return false;
-      this.state.weapons.push({
-        key: item.key,
-        level: 1,
-        rarity: item.rarity
-      });
-    }
+    this.state.weapons.push({
+      key: item.key,
+      level: 1,
+      rarity: item.rarity || 'common'
+    });
 
     this.cooldowns = [];
     this.drawWeaponSlots();
+    return true;
+  }
+
+  /// Every pair of identical guns at the same rarity, ready to be welded into
+  /// the next tier. Pairs are consumed two at a time.
+  mergeablePairs() {
+    const slots = this.state.weapons;
+    const groups = new Map();
+
+    slots.forEach((slot, index) => {
+      const rarity = slot.rarity || 'common';
+      if (!nextRarity(rarity)) return;
+
+      const groupKey = `${slot.key}:${rarity}`;
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, { key: slot.key, rarity, indices: [] });
+      }
+      groups.get(groupKey).indices.push(index);
+    });
+
+    const pairs = [];
+    groups.forEach((group) => {
+      for (let i = 0; i + 1 < group.indices.length; i += 2) {
+        pairs.push({
+          a: group.indices[i],
+          b: group.indices[i + 1],
+          key: group.key,
+          rarity: group.rarity,
+          next: nextRarity(group.rarity)
+        });
+      }
+    });
+
+    return pairs;
+  }
+
+  /// Fuses two identical guns into one of the next rarity, for a little gold.
+  mergeWeaponPair(a, b) {
+    const slots = this.state.weapons;
+    const first = slots[a];
+    const second = slots[b];
+    if (!first || !second || a === b) return false;
+
+    const rarity = first.rarity || 'common';
+    if (second.key !== first.key) return false;
+    if ((second.rarity || 'common') !== rarity) return false;
+
+    const next = nextRarity(rarity);
+    if (!next) return false;
+
+    const cost = mergeCost(rarity);
+    if (this.state.coins < cost) return false;
+
+    this.state.coins -= cost;
+    first.rarity = next.key;
+    first.level = Math.max(first.level || 1, second.level || 1);
+    slots.splice(b, 1);
+
+    this.cooldowns = [];
+    this.drawWeaponSlots();
+    this.flashSlot(a);
+    Sfx.levelUp();
+    haptic('level_up');
     return true;
   }
 
