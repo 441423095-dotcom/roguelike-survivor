@@ -27,6 +27,14 @@ export function xpForLevel(wave) {
   return Math.round(30 + 22 * (w - 1) + 0.9 * (w - 1) * (w - 1));
 }
 
+/// How many coin pickups a wave pays out in total. The opening waves get enough
+/// for a first purchase; the deep waves stop snowballing because the budget only
+/// grows gently while kills multiply.
+export function coinBudgetForWave(wave) {
+  const w = Math.max(1, wave);
+  return Math.round(24 + 7 * w);
+}
+
 /// Waves 1-3 only ever drop starter guns; every three waves after that unlocks
 /// the next bracket, and the big guns stay late.
 export function weaponTierForWave(wave) {

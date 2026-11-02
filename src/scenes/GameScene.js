@@ -14,7 +14,7 @@ import {
   teapotInterval
 } from '../game/passives.js';
 import { Sfx, setMusicTrack, duckMusic } from '../game/audio.js';
-import { xpForLevel } from '../game/loot.js';
+import { xpForLevel, coinBudgetForWave } from '../game/loot.js';
 import { rarityColor } from '../game/rarities.js';
 import { nextRarity, mergeCost } from '../game/rarities.js';
 import { recordAchievement } from '../game/achievements.js';
@@ -1846,21 +1846,21 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Coins are not guaranteed: the small fry mostly do not pay out, which is
-    // what makes saving up for something in the shop a real decision.
+    // what makes saving up for something in the shop a real decision. The wave's
+    // coin budget is a hard ceiling on top of that.
     const coins = enemy.getData('coins') || 1;
     const coinChance =
       enemy.getData('coinChance') === undefined
         ? 1
         : enemy.getData('coinChance');
-    // The opening waves pay a little better, so the first shop trip is
-    // affordable even though there is less to kill.
-    const coinBoost = this.state.wave <= 5 ? 1.6 : 1;
-    if (Math.random() < Math.min(1, coinChance * coinBoost)) {
+    if (Math.random() < coinChance) {
       // 生锈的硬币 doubles what every corpse pays out, and a hard run pays a
       // little more on top of that.
       const value = (this.state.coinMult || 1) * this.difficulty.coin;
       for (let i = 0; i < coins; i++) {
+        if (this.coinsDropped >= this.coinBudget) break;
         this.dropCoin(enemy.x, enemy.y, 8 + i * 4, value);
+        this.coinsDropped += 1;
       }
     }
 
@@ -2078,6 +2078,12 @@ export class GameScene extends Phaser.Scene {
       );
     }
 
+    // Coins for the whole wave are budgeted up front, so a hundred kills in a
+    // late wave cannot flood the purse, and the first waves still pay enough for
+    // a shop purchase.
+    this.coinBudget = coinBudgetForWave(wave);
+    this.coinsDropped = 0;
+
     this.waveEnding = false;
 
     if (this.spawnTimer) {
@@ -2188,14 +2194,22 @@ export class GameScene extends Phaser.Scene {
     haptic('wave_clear');
     Sfx.waveClear();
 
-    // The wave-clear reward is loot at the player's feet, not a popup.
-    const rewardCoins = 2 + Math.floor(this.state.wave / 3);
-    const rewardGems = 2 + Math.floor(this.state.wave / 5);
-    const coinValue = this.state.coinMult || 1;
+    // The wave pays out its remaining coin budget at the player's feet, so the
+    // income for a wave is steady no matter how many enemies showed up.
+    const value = (this.state.coinMult || 1) * this.difficulty.coin;
+    const remaining = Math.max(0, this.coinBudget - this.coinsDropped);
 
-    for (let i = 0; i < rewardCoins; i++) {
-      this.dropCoin(this.player.x, this.player.y, 16, coinValue);
+    if (remaining > 0) {
+      const chunks = Math.min(8, remaining);
+      const perChunk = Math.ceil(remaining / chunks);
+
+      for (let i = 0; i < chunks; i++) {
+        this.dropCoin(this.player.x, this.player.y, 18, perChunk * value);
+      }
+      this.coinsDropped += remaining;
     }
+
+    const rewardGems = 2 + Math.floor(this.state.wave / 5);
     for (let i = 0; i < rewardGems; i++) {
       this.dropGem(this.player.x, this.player.y, 1, 16);
     }
