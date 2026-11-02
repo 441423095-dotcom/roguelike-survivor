@@ -11,12 +11,15 @@ import {
   loadMeta,
   META_PERKS,
   META_SKINS,
+  META_ACCESSORIES,
   META_CHARACTER_COSTS,
   perkLevel,
   buyPerk,
   buyCharacter,
   buySkin,
-  equipSkin
+  equipSkin,
+  buyAccessory,
+  toggleAccessory
 } from '../game/meta.js';
 import { CHARACTERS } from '../game/characters.js';
 import { loadProgress, isUnlocked } from '../game/progress.js';
@@ -122,6 +125,25 @@ export class MetaShopScene extends Phaser.Scene {
         owned,
         equipped,
         status: equipped ? '使用中' : owned ? '已拥有' : ''
+      });
+    }
+
+    list.push({ type: 'header', text: '配件', sub: '搞怪头脸与身体光效，点击穿戴 / 卸下' });
+    for (const item of META_ACCESSORIES) {
+      const owned = meta.accessories.indexOf(item.key) !== -1;
+      const worn = meta.worn.indexOf(item.key) !== -1;
+
+      list.push({
+        type: 'item',
+        kind: 'accessory',
+        key: item.key,
+        name: item.name,
+        desc: item.desc,
+        icon: item.icon,
+        cost: item.cost,
+        owned,
+        equipped: worn,
+        status: worn ? '穿戴中' : owned ? '已拥有' : ''
       });
     }
 
@@ -333,7 +355,9 @@ export class MetaShopScene extends Phaser.Scene {
     }
 
     const price = entry.cost || 0;
-    const showPrice = price > 0 && !(entry.kind === 'skin' && entry.owned);
+    const showPrice =
+      price > 0 &&
+      !((entry.kind === 'skin' || entry.kind === 'accessory') && entry.owned);
 
     if (showPrice) {
       const coin = this.add
@@ -350,7 +374,11 @@ export class MetaShopScene extends Phaser.Scene {
         .setOrigin(0, 0.5);
       amount.setResolution(TEXT_RESOLUTION);
       parts.push(coin, amount);
-    } else if (entry.kind === 'skin' && entry.owned && !entry.equipped) {
+    } else if (
+      (entry.kind === 'skin' || entry.kind === 'accessory') &&
+      entry.owned &&
+      !entry.equipped
+    ) {
       const hint = this.add
         .text(half - 16 * s, height * 0.2, '点击使用', {
           fontFamily: FONT,
@@ -403,6 +431,15 @@ export class MetaShopScene extends Phaser.Scene {
       } else {
         paid = buySkin(entry.key);
         if (paid > 0) message = `已换上 ${entry.name}`;
+      }
+    } else if (entry.kind === 'accessory') {
+      if (entry.owned) {
+        const worn = toggleAccessory(entry.key);
+        message = worn ? `穿上 ${entry.name}` : `脱下 ${entry.name}`;
+        paid = -1;
+      } else {
+        paid = buyAccessory(entry.key);
+        if (paid > 0) message = `买下并穿上 ${entry.name}`;
       }
     }
 

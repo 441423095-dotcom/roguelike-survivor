@@ -46,13 +46,62 @@ export const META_CHARACTER_COSTS = {
   ember: 400
 };
 
+// The silly bits: faces and body decorations worn on top of the hero's sprite.
+// Owned ones can be worn and taken off freely, and several can be worn at once.
+export const META_ACCESSORIES = [
+  {
+    key: 'shades',
+    name: '黑帮墨镜',
+    icon: 'crosshair',
+    desc: '脸上横一副黑色墨镜，谁都不服',
+    cost: 120
+  },
+  {
+    key: 'mustache',
+    name: '滑稽胡子',
+    icon: 'swords',
+    desc: '嘴下两撇翘起来的八字胡',
+    cost: 100
+  },
+  {
+    key: 'tophat',
+    name: '高礼帽',
+    icon: 'crown',
+    desc: '头顶一顶带帽檐的黑色高礼帽',
+    cost: 160
+  },
+  {
+    key: 'cybereyes',
+    name: '赛博发光眼',
+    icon: 'target',
+    desc: '眼睛换成一对红色发光点',
+    cost: 180
+  },
+  {
+    key: 'halo',
+    name: '发光光环',
+    icon: 'sparkles',
+    desc: '脚底踩一圈青色光环',
+    cost: 200
+  },
+  {
+    key: 'tattoo',
+    name: '赛博纹身',
+    icon: 'zap',
+    desc: '身上散着几个青色发光像素点',
+    cost: 150
+  }
+];
+
 function blank() {
   return {
     shards: 0,
     perks: { health: 0, damage: 0, speed: 0 },
     characters: [],
     skins: ['default'],
-    skin: 'default'
+    skin: 'default',
+    accessories: [],
+    worn: []
   };
 }
 
@@ -72,7 +121,9 @@ export function loadMeta() {
         Array.isArray(data.skins) && data.skins.length > 0
           ? data.skins
           : base.skins,
-      skin: typeof data.skin === 'string' ? data.skin : base.skin
+      skin: typeof data.skin === 'string' ? data.skin : base.skin,
+      accessories: Array.isArray(data.accessories) ? data.accessories : [],
+      worn: Array.isArray(data.worn) ? data.worn : []
     };
   } catch (error) {
     return blank();
@@ -187,4 +238,42 @@ export function activeSkinTint() {
   const meta = loadMeta();
   const def = META_SKINS.find((skin) => skin.key === meta.skin);
   return def ? def.tint : null;
+}
+
+/// Buys an accessory and wears it straight away. Returns the price paid, or 0.
+export function buyAccessory(key) {
+  const def = META_ACCESSORIES.find((item) => item.key === key);
+  if (!def) return 0;
+
+  const meta = loadMeta();
+  if (meta.accessories.indexOf(key) !== -1) return 0;
+  if (meta.shards < def.cost) return 0;
+
+  meta.shards -= def.cost;
+  meta.accessories.push(key);
+  if (meta.worn.indexOf(key) === -1) meta.worn.push(key);
+  saveMeta(meta);
+  return def.cost;
+}
+
+/// Wears or takes off an owned accessory. Returns true when it is now worn.
+export function toggleAccessory(key) {
+  const meta = loadMeta();
+  if (meta.accessories.indexOf(key) === -1) return false;
+
+  const at = meta.worn.indexOf(key);
+  if (at === -1) meta.worn.push(key);
+  else meta.worn.splice(at, 1);
+
+  saveMeta(meta);
+  return at === -1;
+}
+
+export function accessoryOwned(key) {
+  return loadMeta().accessories.indexOf(key) !== -1;
+}
+
+/// The accessories the hero is wearing this run.
+export function wornAccessories() {
+  return loadMeta().worn.slice();
 }

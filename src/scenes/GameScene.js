@@ -28,6 +28,7 @@ import { recordAchievement } from '../game/achievements.js';
 import {
   metaBonuses,
   activeSkinTint,
+  wornAccessories,
   shardsForRun,
   addShards
 } from '../game/meta.js';
@@ -200,6 +201,7 @@ export class GameScene extends Phaser.Scene {
 
     this.buildWorld();
     this.buildPlayer();
+    this.buildAccessories();
     this.buildGroups();
     this.buildControls();
     this.buildTopBar();
@@ -365,6 +367,81 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------- entities
+
+  /// The silly accessories bought with star dust, drawn as simple shapes on top
+  /// of the hero: a hat, shades, a moustache, glowing eyes, tattoos and a halo
+  /// under the feet. Read once at the start of the run.
+  buildAccessories() {
+    const worn = wornAccessories();
+    if (worn.length === 0) return;
+    const has = (key) => worn.indexOf(key) !== -1;
+
+    const layer = this.add.container(this.player.x, this.player.y).setDepth(13);
+    const g = this.add.graphics();
+    layer.add(g);
+
+    if (has('tattoo')) {
+      g.fillStyle(0x39e6cd, 0.85);
+      g.fillRect(-7, 2, 2.5, 2.5);
+      g.fillRect(5, -2, 2.5, 2.5);
+      g.fillRect(-1, 7, 2.5, 2.5);
+      g.fillStyle(0x39e6cd, 0.25);
+      g.fillCircle(-6, 3, 5);
+      g.fillCircle(6, -1, 4);
+    }
+
+    if (has('shades')) {
+      g.fillStyle(0x04070c, 0.96);
+      g.fillRoundedRect(-12, -10, 24, 7, 2);
+      g.lineStyle(1, 0x2bd3c4, 0.6);
+      g.lineBetween(-3, -6, 3, -6);
+    }
+
+    if (has('cybereyes')) {
+      g.fillStyle(0xff2f4d, 0.25);
+      g.fillCircle(-5, -7, 5);
+      g.fillCircle(5, -7, 5);
+      g.fillStyle(0xff2f4d, 1);
+      g.fillCircle(-5, -7, 2.2);
+      g.fillCircle(5, -7, 2.2);
+    }
+
+    if (has('mustache')) {
+      g.fillStyle(0x4a2c18, 1);
+      g.fillRoundedRect(-7, 3, 6, 3, 1);
+      g.fillRoundedRect(1, 3, 6, 3, 1);
+      g.fillTriangle(-6, 3, -10, 0, -6, 6);
+      g.fillTriangle(6, 3, 10, 0, 6, 6);
+    }
+
+    if (has('tophat')) {
+      g.fillStyle(0x0a0d12, 1);
+      g.fillRect(-8, -28, 16, 12);
+      g.fillRect(-13, -17, 26, 3);
+      g.fillStyle(0x39e6cd, 0.9);
+      g.fillRect(-8, -20, 16, 1.5);
+    }
+
+    this.accessoryLayer = layer;
+
+    if (has('halo')) {
+      const halo = this.add.graphics().setDepth(11);
+      halo.lineStyle(4, 0x39e6cd, 0.3);
+      halo.strokeEllipse(0, 0, 36, 15);
+      halo.lineStyle(1.5, 0x9ffcff, 0.85);
+      halo.strokeEllipse(0, 0, 32, 12);
+      halo.setPosition(this.player.x, this.player.y + 16);
+      this.halo = halo;
+      this.tweens.add({
+        targets: halo,
+        alpha: { from: 0.4, to: 1 },
+        duration: 1200,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.inOut'
+      });
+    }
+  }
 
   buildGroups() {
     this.bullets = this.physics.add.group({ allowGravity: false });
@@ -862,6 +939,10 @@ export class GameScene extends Phaser.Scene {
     this.updateTopBar();
 
     this.shadow.setPosition(this.player.x, this.player.y + 15);
+    if (this.accessoryLayer) {
+      this.accessoryLayer.setPosition(this.player.x, this.player.y);
+    }
+    if (this.halo) this.halo.setPosition(this.player.x, this.player.y + 16);
 
     // The floor pattern creeps downwards, a few pixels a second.
     if (this.floor) this.floor.tilePositionY -= dt * 3;
