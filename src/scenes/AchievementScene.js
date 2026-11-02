@@ -6,7 +6,8 @@ import { COLORS, FONT } from '../ui/style.js';
 import { makeButton } from '../ui/widgets.js';
 import { TEXT_RESOLUTION, sharpenText } from '../ui/text.js';
 import { haptic } from '../haptics.js';
-import { achievementState } from '../game/achievements.js';
+import { achievementState, claimReward } from '../game/achievements.js';
+import { Sfx } from '../game/audio.js';
 
 export class AchievementScene extends Phaser.Scene {
   constructor() {
@@ -17,6 +18,7 @@ export class AchievementScene extends Phaser.Scene {
     this.scrollY = 0;
     this.maxScroll = 0;
     this.dragging = false;
+    this.dragDistance = 0;
     this.build();
 
     this.input.on('pointerdown', this.onDragStart, this);
@@ -86,7 +88,24 @@ export class AchievementScene extends Phaser.Scene {
 
     state.items.forEach((item, index) => {
       const row = this.buildRow(item, cardW, rowH, s);
-      this.rows.push({ node: row, index });
+      const claimable = item.done && !item.claimed;
+
+      const zone = this.add
+        .zone(W / 2, listTop + index * (rowH + gap) + rowH / 2, cardW, rowH)
+        .setDepth(3)
+        .setOrigin(0.5);
+      zone.setInteractive();
+
+      if (claimable) {
+        zone.on('pointerup', () => {
+          if (this.dragDistance > 14) return;
+          this.claim(item);
+        });
+      } else if (zone.input) {
+        zone.input.enabled = false;
+      }
+
+      this.rows.push({ node: row, zone, index, claimable });
     });
 
     const contentH = state.items.length * (rowH + gap) - gap;
@@ -166,13 +185,7 @@ export class AchievementScene extends Phaser.Scene {
 
     const parts = [card, disc, icon, name, desc];
 
-    if (item.done) {
-      const check = this.add
-        .image(half - 28 * s, 0, 'icon-check')
-        .setDisplaySize(20 * s, 20 * s)
-        .setTint(0xffd166);
-      parts.push(check);
-    } else {
+    if (!item.done) {
       const progress = this.add
         .text(half - 20 * s, 0, `${item.value}/${item.goal}`, {
           fontFamily: FONT,
@@ -182,6 +195,46 @@ export class AchievementScene extends Phaser.Scene {
         .setOrigin(1, 0.5);
       progress.setResolution(TEXT_RESOLUTION);
       parts.push(progress);
+    } else if (item.claimed) {
+      const check = this.add
+        .image(half - 30 * s, -8 * s, 'icon-check')
+        .setDisplaySize(18 * s, 18 * s)
+        .setTint(0xffd166);
+
+      const claimed = this.add
+        .text(half - 16 * s, 12 * s, '已领取', {
+          fontFamily: FONT,
+          fontSize: `${Math.round(10 * s)}px`,
+          color: COLORS.dim
+        })
+        .setOrigin(1, 0.5);
+      claimed.setResolution(TEXT_RESOLUTION);
+
+      parts.push(check, claimed);
+    } else {
+      const coin = this.add
+        .image(half - 74 * s, -8 * s, 'coin')
+        .setDisplaySize(14 * s, 14 * s);
+      const amount = this.add
+        .text(half - 62 * s, -8 * s, `+${item.reward}`, {
+          fontFamily: FONT,
+          fontSize: `${Math.round(13 * s)}px`,
+          color: COLORS.goldHex,
+          fontStyle: 'bold'
+        })
+        .setOrigin(0, 0.5);
+      amount.setResolution(TEXT_RESOLUTION);
+
+      const hint = this.add
+        .text(half - 16 * s, 12 * s, '点击领取', {
+          fontFamily: FONT,
+          fontSize: `${Math.round(10 * s)}px`,
+          color: COLORS.dim
+        })
+        .setOrigin(1, 0.5);
+      hint.setResolution(TEXT_RESOLUTION);
+
+      parts.push(coin, amount, hint);
     }
 
     const container = this.add.container(0, 0, parts);
@@ -199,36 +252,87 @@ export class AchievementScene extends Phaser.Scene {
     for (const row of this.rows) {
       const centre = top + row.index * step + this.rowH / 2 + this.scrollY;
       row.node.setPosition(W / 2, centre);
+      row.zone.setPosition(W / 2, centre);
 
       const visible =
         centre + this.rowH / 2 > top - 2 && centre - this.rowH / 2 < this.listBottom + 2;
       row.node.setVisible(visible);
+      if (row.zone.input) row.zone.input.enabled = visible && row.claimable;
     }
   }
 
   onDragStart(pointer) {
     this.dragging = true;
+    this.dragDistance = 0;
     this.dragStartY = pointer.y;
-    this.dragStartScroll = this.scrollY;
   }
 
   onDragMove(pointer) {
-    if (!this.dragging || this.maxScroll <= 0) return;
+    if (!this.dragging) return;
 
     const delta = pointer.y - this.dragStartY;
-    const next = Phaser.Math.Clamp(
-      this.dragStartScroll + delta,
-      -this.maxScroll,
-      0
-    );
+    this.dragDistance += Math.abs(delta);
+    this.dragStartY = pointer.y;
 
+    if (this.maxScroll <= 0) return;
+
+    const next = Phaser.Math.Clamp(this.scrollY + delta, -this.maxScroll, 0);
     if (next === this.scrollY) return;
+
     this.scrollY = next;
     this.applyScroll();
   }
 
   onDragEnd() {
     this.dragging = false;
+  }
+
+  /// Pays out one earned achievement into the bank the next run starts with.
+  claim(item) {
+    const amount = claimReward(item.key);
+    if (amount <= 0) return;
+
+    haptic('impact');
+    Sfx.coin();
+
+    this.rebuild();
+    this.showToast(amount);
+  }
+
+  showToast(amount) {
+    const W = this.scale.gameSize.width;
+    const H = this.scale.gameSize.height;
+    const s = Math.min(1.6, Math.max(0.9, W / 420));
+
+    const label = this.add
+      .text(W / 2, H * 0.16, `领取 ${amount} 金币`, {
+        fontFamily: FONT,
+        fontSize: `${Math.round(16 * s)}px`,
+        color: COLORS.goldHex,
+        fontStyle: 'bold'
+      })
+      .setOrigin(0.5)
+      .setDepth(30)
+      .setAlpha(0);
+    label.setResolution(TEXT_RESOLUTION);
+
+    this.tweens.add({
+      targets: label,
+      alpha: 1,
+      y: '-=20',
+      duration: 220,
+      ease: 'Cubic.out'
+    });
+
+    this.time.delayedCall(1400, () => {
+      if (!label.active) return;
+      this.tweens.add({
+        targets: label,
+        alpha: 0,
+        duration: 300,
+        onComplete: () => label.destroy()
+      });
+    });
   }
 
   goBack() {

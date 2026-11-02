@@ -91,6 +91,24 @@ export const ACHIEVEMENTS = [
   }
 ];
 
+// Coins each achievement pays out when it is claimed from the archive.
+const REWARDS = {
+  wave5: 20,
+  wave10: 30,
+  kills1000: 40,
+  pair: 15,
+  allchars: 40,
+  cards: 15,
+  boss: 20,
+  evolve: 25,
+  rich: 20,
+  endless: 30
+};
+
+for (const def of ACHIEVEMENTS) {
+  def.reward = REWARDS[def.key] || 20;
+}
+
 export const ACHIEVEMENT_COUNT = ACHIEVEMENTS.length;
 
 function blankStats() {
@@ -108,7 +126,7 @@ function blankStats() {
 }
 
 function blank() {
-  return { stats: blankStats(), unlocked: [] };
+  return { stats: blankStats(), unlocked: [], claimed: [], pendingCoins: 0 };
 }
 
 export function loadAchievements() {
@@ -128,7 +146,9 @@ export function loadAchievements() {
 
     return {
       stats,
-      unlocked: Array.isArray(data.unlocked) ? data.unlocked : []
+      unlocked: Array.isArray(data.unlocked) ? data.unlocked : [],
+      claimed: Array.isArray(data.claimed) ? data.claimed : [],
+      pendingCoins: Math.max(0, Math.floor(Number(data.pendingCoins) || 0))
     };
   } catch (error) {
     return blank();
@@ -206,6 +226,8 @@ export function achievementState() {
       icon: def.icon,
       goal: def.goal,
       value,
+      reward: def.reward,
+      claimed: data.claimed.indexOf(def.key) !== -1,
       done: data.unlocked.indexOf(def.key) !== -1
     };
   });
@@ -215,4 +237,34 @@ export function achievementState() {
     done: items.filter((item) => item.done).length,
     items
   };
+}
+
+/// Claims one earned achievement's coins, banking them for the next run.
+/// Returns the amount paid, or 0 when there is nothing to claim.
+export function claimReward(key) {
+  const data = loadAchievements();
+  if (data.unlocked.indexOf(key) === -1) return 0;
+  if (data.claimed.indexOf(key) !== -1) return 0;
+
+  const def = ACHIEVEMENTS.find((entry) => entry.key === key);
+  if (!def) return 0;
+
+  data.claimed.push(key);
+  data.pendingCoins += def.reward;
+  save(data);
+
+  return def.reward;
+}
+
+/// Hands the banked coins to a fresh run and empties the bank.
+export function takePendingCoins() {
+  const data = loadAchievements();
+  const amount = Math.max(0, Math.floor(data.pendingCoins || 0));
+
+  if (amount > 0) {
+    data.pendingCoins = 0;
+    save(data);
+  }
+
+  return amount;
 }

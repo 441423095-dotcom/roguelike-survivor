@@ -15,7 +15,7 @@ import {
 } from '../game/passives.js';
 import { Sfx, setMusicTrack, duckMusic } from '../game/audio.js';
 import { xpForLevel, weaponDropFactor, weaponDropKey } from '../game/loot.js';
-import { recordAchievement } from '../game/achievements.js';
+import { recordAchievement, takePendingCoins } from '../game/achievements.js';
 import { markDiscovered } from '../game/bestiary.js';
 import {
   WEAPONS,
@@ -118,7 +118,9 @@ export class GameScene extends Phaser.Scene {
       wave: 1,
       waveLeft: 0,
       kills: 0,
-      coins: 0,
+      // Coins claimed from the achievement archive are banked and handed to the
+      // next run as its starting purse.
+      coins: takePendingCoins(),
       // 生锈的硬币 locks the purse and doubles every drop; both stay neutral
       // until the trinket is bought.
       coinCap: Number.POSITIVE_INFINITY,
