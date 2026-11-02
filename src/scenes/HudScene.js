@@ -66,9 +66,7 @@ export class HudScene extends Phaser.Scene {
 
     // The boss bar sits just under the strip, at the top of the level. It is
     // hidden until a boss wave is actually underway.
-    // The boss bar sits just under the strip, at the top of the level. It is
-    // hidden until a boss wave is actually underway.
-    const bossBarW = Math.min(stripW - 40, Math.round(320 * L.uiScale));
+    const bossBarW = Math.min(L.width - 60, Math.round(320 * L.uiScale));
     const bossBarH = Math.max(10, Math.round(12 * L.uiScale));
     const bossBarX = (L.width - bossBarW) / 2;
     const bossBarY = top + stripH + 76;
