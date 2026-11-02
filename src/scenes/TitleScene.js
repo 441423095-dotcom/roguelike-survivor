@@ -27,7 +27,6 @@ export class TitleScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(0x04060b);
     this.build();
 
-
     initAudio(this);
     startMusic(this, 'menu');
 
