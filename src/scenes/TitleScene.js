@@ -1,4 +1,7 @@
-// The start screen: the hero, the title and one way into the arena.
+// The start screen: the game's name over a quietly alive backdrop, one glowing
+// way into the arena, and the side doors into the meta screens. Everything here
+// is drawn in code — the only image is the game's own hero sprite, used as a
+// huge, barely-there watermark.
 
 import { computeLayout } from '../ui/layout.js';
 import { COLORS, FONT } from '../ui/style.js';
@@ -9,13 +12,17 @@ import { loadMeta } from '../game/meta.js';
 import { initAudio, startMusic } from '../game/audio.js';
 import { sharpenText } from '../ui/text.js';
 
+const GAME_TITLE = '像素弹幕生存';
+const GAME_SUBTITLE = '在无尽的怪潮中，构筑你的奇葩流派';
+const VERSION_LABEL = 'Version 1.0.0';
+
 export class TitleScene extends Phaser.Scene {
   constructor() {
     super('Title');
   }
 
   create() {
-    this.cameras.main.setBackgroundColor(0x070a10);
+    this.cameras.main.setBackgroundColor(0x04060b);
     this.build();
 
     initAudio(this);
@@ -46,170 +53,387 @@ export class TitleScene extends Phaser.Scene {
     const L = computeLayout(W, H);
     const s = L.uiScale;
 
-    this.add
-      .tileSprite(0, 0, W, H, 'floor')
-      .setOrigin(0, 0)
-      .setDepth(-20);
+    this.buildBackdrop(W, H);
 
-    const shade = this.add.graphics().setDepth(-19);
-    shade.fillStyle(0x05080d, 0.55);
-    shade.fillRect(0, 0, W, H);
+    const titleY = H * 0.235;
+    this.buildTitle(W, H, s, titleY);
 
-    // A soft ring behind the hero, so the eye lands on it first.
-    shade.lineStyle(2, 0x2bd3c4, 0.16);
-    shade.strokeCircle(W / 2, H * 0.34, Math.min(W, H) * 0.24);
-    shade.lineStyle(1, 0x2bd3c4, 0.1);
-    shade.strokeCircle(W / 2, H * 0.34, Math.min(W, H) * 0.32);
+    const btnW = Math.min(W - 84, 272 * s);
+    const btnH = Math.round(60 * s);
+    const btnY = H * 0.575;
+    this.buildStart(W, H, s, btnY, btnW, btnH);
 
-    const heroSize = Math.min(W * 0.3, 132);
-    const hero = this.add
-      .image(W / 2, H * 0.3, 'hero')
-      .setDisplaySize(heroSize, heroSize)
-      .setDepth(1);
-
-    this.tweens.add({
-      targets: hero,
-      y: hero.y - 10,
-      duration: 1100,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.inOut'
-    });
-
-    const titleY = H * 0.52;
-    this.add
-      .text(W / 2, titleY, '肉鸽战斗', {
-        fontFamily: FONT,
-        fontSize: `${Math.round(34 * s)}px`,
-        color: COLORS.ink,
-        fontStyle: 'bold'
-      })
-      .setOrigin(0.5)
-      .setDepth(2)
-      .setShadow(0, 4, '#04070c', 10, false, true);
-
-    this.add
-      .text(W / 2, titleY + 34 * s, '怪潮之中 · 活到最后', {
-        fontFamily: FONT,
-        fontSize: `${Math.round(13 * s)}px`,
-        color: COLORS.accentHex
-      })
-      .setOrigin(0.5)
-      .setDepth(2);
-
-    const btnW = Math.min(W - 80, 240 * s);
-    const btnH = Math.round(56 * s);
-
-    makeButton(this, {
-      x: W / 2,
-      y: H * 0.66,
-      width: btnW,
-      height: btnH,
-      icon: 'play',
-      label: '开始战斗',
-      fontSize: Math.round(18 * s),
-      depth: 2,
-      onPress: () => this.startRun()
-    });
-
-    this.buildRecords(W, H, s);
+    const secY = btnY + btnH / 2 + 30 * s;
+    this.buildSecondary(W, H, s, secY);
 
     // Star dust is spent here, never inside a run.
     makeButton(this, {
       x: W / 2,
-      y: H * 0.72,
-      width: Math.min(W - 80, 240 * s),
-      height: Math.round(38 * s),
+      y: secY + Math.round(48 * s),
+      width: Math.min(W - 120, 220 * s),
+      height: Math.round(34 * s),
       icon: 'sparkles',
       label: `星尘商店 · ${loadMeta().shards}`,
-      fontSize: Math.round(13 * s),
+      fontSize: Math.round(12 * s),
       accent: 0xffd166,
       depth: 3,
       onPress: () => this.openMetaShop()
     });
 
-    // The archive entry, mirroring the record-clearing link on the right.
-    makeButton(this, {
-      x: 18 * s + 46 * s,
-      y: 30 * s,
-      width: 92 * s,
-      height: 30 * s,
-      icon: 'medal',
-      label: '成就',
-      fontSize: Math.round(11 * s),
-      accent: 0xffd166,
-      depth: 3,
-      onPress: () => this.openAchievements()
-    });
-
-    makeButton(this, {
-      x: 18 * s + 92 * s + 8 * s + 46 * s,
-      y: 30 * s,
-      width: 92 * s,
-      height: 30 * s,
-      icon: 'book-open',
-      label: '图鉴',
-      fontSize: Math.round(11 * s),
-      accent: 0x39e6cd,
-      depth: 3,
-      onPress: () => this.openBestiary()
-    });
-
-    this.add
-      .text(W / 2, H * 0.87, '自动射击 · 拖动屏幕任意处移动 · 右下按钮冲刺', {
-        fontFamily: FONT,
-        fontSize: `${Math.round(13 * s)}px`,
-        color: COLORS.dim
-      })
-      .setOrigin(0.5)
-      .setDepth(2);
-
-    this.add
-      .text(W / 2, H * 0.905, '击杀怪物拾取碎片升级 · 活过每一波', {
-        fontFamily: FONT,
-        fontSize: `${Math.round(13 * s)}px`,
-        color: COLORS.dim
-      })
-      .setOrigin(0.5)
-      .setDepth(2);
+    this.buildRecords(W, H, s, H * 0.845);
+    this.buildVersion(W, H, s);
 
     sharpenText(this);
   }
 
-  startRun() {
-    haptic('tick');
-    this.scene.start('Difficulty');
+  // ---------------------------------------------------------------- backdrop
+
+  /// A faint grid, slowly drifting specks and two breathing glows: enough motion
+  /// that the screen never looks like a dead page.
+  buildBackdrop(W, H) {
+    const grid = this.add.graphics().setDepth(-30);
+    const step = Math.max(28, Math.round(W / 11));
+
+    grid.lineStyle(1, 0x2a5866, 0.55);
+    for (let x = 0; x <= W + step; x += step) grid.lineBetween(x, 0, x, H);
+    for (let y = 0; y <= H + step; y += step) grid.lineBetween(0, y, W, y);
+    grid.setAlpha(0.22);
+    this.tweens.add({
+      targets: grid,
+      alpha: 0.1,
+      duration: 7000,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.inOut'
+    });
+
+    const nebulaA = this.add
+      .ellipse(W * 0.18, H * 0.18, W * 0.95, W * 0.95, 0x0d3a44, 0.5)
+      .setDepth(-31);
+    this.tweens.add({
+      targets: nebulaA,
+      alpha: 0.22,
+      scale: 1.08,
+      duration: 9000,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.inOut'
+    });
+
+    const nebulaB = this.add
+      .ellipse(W * 0.86, H * 0.78, W * 0.9, W * 0.9, 0x2a1a45, 0.45)
+      .setDepth(-31);
+    this.tweens.add({
+      targets: nebulaB,
+      alpha: 0.2,
+      scale: 1.06,
+      duration: 11000,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.inOut'
+    });
+
+    const stars = Math.min(70, Math.round((W * H) / 9000));
+    for (let i = 0; i < stars; i++) {
+      const star = this.add
+        .circle(
+          Phaser.Math.Between(0, W),
+          Phaser.Math.Between(0, H),
+          Math.random() < 0.85 ? 1 : 1.8,
+          0xa8e6ff,
+          Phaser.Math.FloatBetween(0.12, 0.5)
+        )
+        .setDepth(-29);
+
+      this.tweens.add({
+        targets: star,
+        y: star.y - Phaser.Math.Between(26, 96),
+        alpha: 0.04,
+        duration: Phaser.Math.Between(4200, 9000),
+        delay: Phaser.Math.Between(0, 3200),
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.inOut'
+      });
+    }
+
+    // The hero, huge and almost invisible, as a watermark behind everything.
+    const size = Math.min(W, H) * 0.94;
+    const mark = this.add
+      .image(W / 2, H * 0.47, 'hero')
+      .setDisplaySize(size, size)
+      .setAlpha(0.05)
+      .setTint(0x63ffe0)
+      .setDepth(-28);
+    this.tweens.add({
+      targets: mark,
+      scale: mark.scale * 1.03,
+      duration: 8000,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.inOut'
+    });
   }
 
-  openAchievements() {
-    haptic('tick');
-    this.scene.start('Achievement');
+  // ------------------------------------------------------------------- title
+
+  buildTitle(W, H, s, titleY) {
+    const size = Math.round(Math.min(W * 0.135, 54 * s));
+
+    const glow = this.add
+      .text(W / 2, titleY, GAME_TITLE, {
+        fontFamily: FONT,
+        fontSize: `${size}px`,
+        color: '#39e6cd',
+        fontStyle: 'bold'
+      })
+      .setOrigin(0.5)
+      .setAlpha(0.34)
+      .setDepth(1);
+    glow.setShadow(0, 0, '#2bd3c4', 22, true, true);
+
+    this.tweens.add({
+      targets: glow,
+      alpha: 0.16,
+      duration: 2600,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.inOut'
+    });
+
+    const title = this.add
+      .text(W / 2, titleY, GAME_TITLE, {
+        fontFamily: FONT,
+        fontSize: `${size}px`,
+        color: '#f4feff',
+        fontStyle: 'bold',
+        stroke: '#08222a',
+        strokeThickness: Math.max(4, Math.round(size * 0.08))
+      })
+      .setOrigin(0.5)
+      .setDepth(2);
+    title.setShadow(0, Math.round(size * 0.16), '#01040a', 14, false, true);
+
+    // A hairline under the wordmark, like a title plate.
+    const lineW = Math.min(W * 0.52, 200 * s);
+    const lineY = titleY + size * 0.72;
+    const line = this.add.graphics().setDepth(2);
+    line.lineStyle(2, 0x2bd3c4, 0.45);
+    line.lineBetween(W / 2 - lineW / 2, lineY, W / 2 + lineW / 2, lineY);
+    line.lineStyle(1, 0x2bd3c4, 0.18);
+    line.lineBetween(
+      W / 2 - lineW * 0.3,
+      lineY + 5 * s,
+      W / 2 + lineW * 0.3,
+      lineY + 5 * s
+    );
+
+    this.add
+      .text(W / 2, titleY + size * 0.98, GAME_SUBTITLE, {
+        fontFamily: FONT,
+        fontSize: `${Math.round(13 * s)}px`,
+        color: '#9fd6e2'
+      })
+      .setOrigin(0.5)
+      .setDepth(2);
   }
 
-  openBestiary() {
-    haptic('tick');
-    this.scene.start('Bestiary');
+  // ----------------------------------------------------------------- buttons
+
+  buildStart(W, H, s, btnY, btnW, btnH) {
+    const glow = this.add.graphics().setDepth(1);
+    const gx = W / 2 - btnW / 2 - 10;
+    const gy = btnY - btnH / 2 - 10;
+    const gw = btnW + 20;
+    const gh = btnH + 20;
+
+    glow.fillStyle(0x39e6cd, 0.05);
+    glow.fillRoundedRect(gx, gy, gw, gh, 22);
+    glow.lineStyle(12, 0x39e6cd, 0.08);
+    glow.strokeRoundedRect(gx, gy, gw, gh, 22);
+    glow.lineStyle(2, 0x39e6cd, 0.6);
+    glow.strokeRoundedRect(gx, gy, gw, gh, 22);
+
+    // The breathing light: the border brightens and dims on its own.
+    this.tweens.add({
+      targets: glow,
+      alpha: { from: 0.45, to: 1 },
+      duration: 1500,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.inOut'
+    });
+
+    makeButton(this, {
+      x: W / 2,
+      y: btnY,
+      width: btnW,
+      height: btnH,
+      icon: 'play',
+      label: '开始游戏',
+      fontSize: Math.round(19 * s),
+      accent: 0x2bd3c4,
+      depth: 3,
+      onPress: () => this.startRun()
+    });
   }
 
-  openMetaShop() {
-    haptic('tick');
-    this.scene.start('MetaShop');
+  buildSecondary(W, H, s, y) {
+    const gap = 12 * s;
+    const width = Math.min((W - 60 - gap) / 2, 152 * s);
+    const height = Math.round(42 * s);
+
+    makeButton(this, {
+      x: W / 2 - width / 2 - gap / 2,
+      y,
+      width,
+      height,
+      icon: 'book-open',
+      label: '玩法说明',
+      fontSize: Math.round(12 * s),
+      accent: 0x8fd8ff,
+      depth: 3,
+      onPress: () => this.openHowTo()
+    });
+
+    makeButton(this, {
+      x: W / 2 + width / 2 + gap / 2,
+      y,
+      width,
+      height,
+      icon: 'medal',
+      label: '图鉴 / 成就',
+      fontSize: Math.round(12 * s),
+      accent: 0xffd166,
+      depth: 3,
+      onPress: () => this.openCompendium()
+    });
   }
 
-  /// The archive strip under the start button, plus the (deliberately tucked
-  /// away) way to wipe it.
-  buildRecords(W, H, s) {
+  // ------------------------------------------------------------------ sheets
+
+  /// One dark sheet for the small screens that ride on top of the title.
+  buildSheet(title, lines, actions) {
+    const W = this.scale.gameSize.width;
+    const H = this.scale.gameSize.height;
+    const s = computeLayout(W, H).uiScale;
+
+    const dim = this.add
+      .rectangle(W / 2, H / 2, W, H, 0x03060a, 0.84)
+      .setDepth(10)
+      .setInteractive();
+    dim.on('pointerdown', () => this.rebuild());
+
+    const panelW = Math.min(W - 40, 340 * s);
+    const bodyH = Math.max(1, lines.length) * Math.round(24 * s);
+    const panelH = Math.round(112 * s + bodyH + 56 * s);
+    const left = W / 2 - panelW / 2;
+    const top = H / 2 - panelH / 2;
+
+    const panel = this.add.graphics().setDepth(11);
+    panel.fillStyle(0x0b1018, 0.99);
+    panel.fillRoundedRect(left, top, panelW, panelH, 16);
+    panel.lineStyle(2, 0x2bd3c4, 0.45);
+    panel.strokeRoundedRect(left, top, panelW, panelH, 16);
+
+    // Taps on the sheet itself do nothing; only its edge closes it, so the
+    // buttons underneath always keep their own taps.
+    this.add
+      .zone(W / 2, H / 2, panelW, panelH)
+      .setDepth(11)
+      .setInteractive()
+      .on('pointerdown', () => {});
+
+    this.add
+      .text(W / 2, top + 26 * s, title, {
+        fontFamily: FONT,
+        fontSize: `${Math.round(17 * s)}px`,
+        color: COLORS.ink,
+        fontStyle: 'bold'
+      })
+      .setOrigin(0.5)
+      .setDepth(12);
+
+    lines.forEach((line, index) => {
+      this.add
+        .text(left + 20 * s, top + 54 * s + index * Math.round(24 * s), line, {
+          fontFamily: FONT,
+          fontSize: `${Math.round(12 * s)}px`,
+          color: '#d6e3ee',
+          wordWrap: { width: panelW - 40 * s, useAdvancedWrap: true },
+          lineSpacing: Math.round(2 * s)
+        })
+        .setOrigin(0, 0)
+        .setDepth(12);
+    });
+
+    const buttons =
+      actions && actions.length > 0
+        ? actions
+        : [{ label: '知道了', accent: 0x2bd3c4, onPress: () => this.rebuild() }];
+
+    const sideGap = 10 * s;
+    const buttonW = (panelW - sideGap * (buttons.length + 1)) / buttons.length;
+    buttons.forEach((action, index) => {
+      makeButton(this, {
+        x: left + sideGap * (index + 1) + buttonW * (index + 0.5),
+        y: top + panelH - 32 * s,
+        width: buttonW,
+        height: Math.round(38 * s),
+        label: action.label,
+        fontSize: Math.round(13 * s),
+        accent: action.accent,
+        depth: 12,
+        onPress: action.onPress
+      });
+    });
+
+    sharpenText(this);
+  }
+
+  openHowTo() {
+    haptic('tick');
+    this.buildSheet('玩法说明', [
+      '滑动屏幕任意处走位，松手就停，不用找摇杆。',
+      '武器会自动开火；右下角闪电是闪现，闪现期间无敌。',
+      '每波结束进补给站，用金币买奇葩道具和更强的武器。',
+      '同名同品质的武器可以免费合成升阶，最多带 5 把。',
+      '第 5、10、15… 波会来首领，撑住就继续下一波。'
+    ]);
+  }
+
+  openCompendium() {
+    haptic('tick');
+    this.buildSheet('图鉴 / 成就', [], [
+      {
+        label: '怪物图鉴',
+        accent: 0x39e6cd,
+        onPress: () => this.scene.start('Bestiary')
+      },
+      {
+        label: '成就档案',
+        accent: 0xffd166,
+        onPress: () => this.scene.start('Achievement')
+      },
+      { label: '关闭', accent: 0x8fa3b0, onPress: () => this.rebuild() }
+    ]);
+  }
+
+  // ---------------------------------------------------------------- records
+
+  /// The archive strip above the footer, plus the (deliberately tucked away)
+  /// way to wipe it.
+  buildRecords(W, H, s, y) {
     const progress = loadProgress();
-    const y = H * 0.78;
-    const panelW = Math.min(W - 44, 360 * s);
-    const panelH = Math.round(54 * s);
+    const panelW = Math.min(W - 44, 340 * s);
+    const panelH = Math.round(50 * s);
     const panelX = (W - panelW) / 2;
     const panelY = y - panelH / 2;
 
     const g = this.add.graphics().setDepth(2);
-    g.fillStyle(0x0b1018, 0.85);
+    g.fillStyle(0x0b1018, 0.7);
     g.fillRoundedRect(panelX, panelY, panelW, panelH, 12);
-    g.lineStyle(1, 0x2bd3c4, 0.25);
+    g.lineStyle(1, 0x2bd3c4, 0.22);
     g.strokeRoundedRect(panelX, panelY, panelW, panelH, 12);
 
     const entries = [
@@ -222,9 +446,9 @@ export class TitleScene extends Phaser.Scene {
       const cx = panelX + (panelW / 3) * (index + 0.5);
 
       this.add
-        .text(cx, y - 9 * s, entry[0], {
+        .text(cx, y - 8 * s, entry[0], {
           fontFamily: FONT,
-          fontSize: `${Math.round(10 * s)}px`,
+          fontSize: `${Math.round(9.5 * s)}px`,
           color: COLORS.dim
         })
         .setOrigin(0.5)
@@ -233,7 +457,7 @@ export class TitleScene extends Phaser.Scene {
       this.add
         .text(cx, y + 9 * s, entry[1], {
           fontFamily: FONT,
-          fontSize: `${Math.round(14 * s)}px`,
+          fontSize: `${Math.round(13 * s)}px`,
           color: entry[2] ? COLORS.goldHex : COLORS.ink,
           fontStyle: 'bold'
         })
@@ -243,16 +467,39 @@ export class TitleScene extends Phaser.Scene {
 
     this.clearArmed = false;
     this.clearText = this.add
-      .text(W - 18 * s, 30 * s, '清空记录', {
+      .text(W - 14 * s, H - 12 * s, '清空记录', {
         fontFamily: FONT,
-        fontSize: `${Math.round(11 * s)}px`,
+        fontSize: `${Math.round(10 * s)}px`,
         color: COLORS.dim
       })
-      .setOrigin(1, 0.5)
+      .setOrigin(1, 1)
       .setDepth(3)
       .setInteractive();
 
     this.clearText.on('pointerdown', () => this.tapClear());
+  }
+
+  buildVersion(W, H, s) {
+    this.add
+      .text(14 * s, H - 12 * s, VERSION_LABEL, {
+        fontFamily: FONT,
+        fontSize: `${Math.round(10 * s)}px`,
+        color: '#5f7d89'
+      })
+      .setOrigin(0, 1)
+      .setDepth(3);
+  }
+
+  // ------------------------------------------------------------- navigation
+
+  startRun() {
+    haptic('tick');
+    this.scene.start('Difficulty');
+  }
+
+  openMetaShop() {
+    haptic('tick');
+    this.scene.start('MetaShop');
   }
 
   /// Wiping is destructive, so the first tap only arms it.

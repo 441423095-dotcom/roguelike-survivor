@@ -1,6 +1,6 @@
 {
-  "name": "肉鸽战斗",
-  "version": "0.1.0",
+  "name": "像素弹幕生存",
+  "version": "1.0.0",
   "entry": "index.html",
   "engine": "phaser 4.2.1",
   "orientation": "any"
