@@ -232,6 +232,7 @@ export class GameScene extends Phaser.Scene {
 
     this.border = this.add.graphics().setDepth(-10);
     this.drawBorder();
+    this.buildAmbiance();
 
     // The whole arena is walkable left to right; the only floor is the bottom
     // of the top HUD, so nobody ever hides under it.
@@ -244,6 +245,60 @@ export class GameScene extends Phaser.Scene {
       Math.max(40, this.layout.width),
       Math.max(40, this.layout.height - this.safeTop)
     );
+  }
+
+  /// The arena's quiet atmosphere: a whisper of neon at the edges, extremely
+  /// faint scan lines drifting down and a slow scroll on the floor pattern.
+  /// Everything stays below the fight (depth -9) and at a few percent opacity,
+  /// so the middle of the field is still black and nothing fights the player's
+  /// eye for a monster or a bullet.
+  buildAmbiance() {
+    const field = this.layout.field;
+    const W = field.width;
+    const H = field.height;
+
+    const edge = this.add.graphics().setDepth(-9);
+    for (let i = 0; i < 6; i++) {
+      const inset = 2 + i * 4;
+      const alpha = 0.05 * (1 - i / 6);
+      edge.lineStyle(4, i % 2 === 0 ? 0x2bd3c4 : 0xff2fd0, alpha);
+      edge.strokeRect(inset, inset, W - inset * 2, H - inset * 2);
+    }
+    edge.fillStyle(0x2bd3c4, 0.05);
+    edge.fillCircle(0, 0, 130);
+    edge.fillCircle(W, H, 130);
+    edge.fillStyle(0xff2fd0, 0.04);
+    edge.fillCircle(W, 0, 120);
+    edge.fillCircle(0, H, 120);
+    this.ambientEdge = edge;
+
+    // Scan lines: one hairline every few pixels, drifting down on a loop.
+    const step = 4;
+    this.scanlines = this.add.graphics().setDepth(-9);
+    for (let y = 0; y < H + step; y += step) {
+      this.scanlines.lineStyle(1, 0x67f7e0, 0.02);
+      this.scanlines.lineBetween(0, y, W, y);
+    }
+    this.tweens.add({
+      targets: this.scanlines,
+      y: step,
+      duration: 2600,
+      repeat: -1,
+      ease: 'Linear'
+    });
+
+    // The playfield outline breathes, never brighter than a hint.
+    this.edgeGlow = this.add.graphics().setDepth(-9);
+    this.edgeGlow.lineStyle(3, 0x2bd3c4, 0.6);
+    this.edgeGlow.strokeRect(9, 9, W - 18, H - 18);
+    this.tweens.add({
+      targets: this.edgeGlow,
+      alpha: { from: 0.18, to: 0.5 },
+      duration: 3400,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.inOut'
+    });
   }
 
   drawBorder() {
@@ -384,9 +439,14 @@ export class GameScene extends Phaser.Scene {
 
     g.clear();
     g.setAlpha(alpha);
-    g.fillStyle(0x121a26, 0.95);
+    // A neon ring: dark glass inside, a dim halo, a bright tube and a hot core.
+    g.fillStyle(0x081018, 0.55);
     g.fillCircle(button.x, button.y, r);
-    g.lineStyle(2, 0xa8f0ff, ratio > 0 ? 0.3 : 0.85);
+    g.lineStyle(10, 0x39e6cd, 0.1);
+    g.strokeCircle(button.x, button.y, r);
+    g.lineStyle(4, 0x39e6cd, 0.34);
+    g.strokeCircle(button.x, button.y, r);
+    g.lineStyle(1.5, 0x9ffcff, 0.9);
     g.strokeCircle(button.x, button.y, r);
 
     const ring = this.dashRing;
@@ -797,6 +857,9 @@ export class GameScene extends Phaser.Scene {
     this.updateTopBar();
 
     this.shadow.setPosition(this.player.x, this.player.y + 15);
+
+    // The floor pattern creeps downwards, a few pixels a second.
+    if (this.floor) this.floor.tilePositionY -= dt * 3;
   }
 
   /// Steering, the simple way: the direction from where the drag started to
@@ -2626,8 +2689,7 @@ export class GameScene extends Phaser.Scene {
     this.dropPickup('coin', 'coin', value, x, y, spread);
   }
 
-  /// A small solid heart on the floor: walk over it and a chunk of health comes
-  /// back. Coin-sized, so it reads as a pickup rather than a landmark.
+  /// A neon medic cross: a glowing green plus that spins slowly on the floor.
   dropHeart() {
     const field = this.layout.field;
     const top = (this.safeTop || 0) + 50;
@@ -2637,26 +2699,34 @@ export class GameScene extends Phaser.Scene {
       Math.max(this.safeTop + 60, field.height - 70)
     );
 
-    const heart = this.add.graphics().setDepth(2);
-    heart.fillStyle(0xff4d6a, 1);
-    heart.fillCircle(-3.6, -2.4, 4.6);
-    heart.fillCircle(3.6, -2.4, 4.6);
-    heart.fillTriangle(-7.6, -0.4, 7.6, -0.4, 0, 8);
-    heart.setPosition(x, y);
-    heart.setScale(0.95);
+    const cross = this.add.graphics().setDepth(2);
+    cross.fillStyle(0x39ff9e, 0.16);
+    cross.fillCircle(0, 0, 13);
+    cross.fillStyle(0x39ff9e, 1);
+    cross.fillRect(-6, -2, 12, 4);
+    cross.fillRect(-2, -6, 4, 12);
+    cross.setPosition(x, y);
+    cross.setScale(0.95);
 
-    heart.setData('kind', 'heart');
-    heart.setData('value', Math.round(this.state.maxHp * 0.12) + 6);
+    cross.setData('kind', 'heart');
+    cross.setData('value', Math.round(this.state.maxHp * 0.12) + 6);
 
     this.tweens.add({
-      targets: heart,
+      targets: cross,
       scale: 1.15,
       duration: 650,
       yoyo: true,
       repeat: -1
     });
+    this.tweens.add({
+      targets: cross,
+      angle: 360,
+      duration: 6000,
+      repeat: -1,
+      ease: 'Linear'
+    });
 
-    this.pickups.push(heart);
+    this.pickups.push(cross);
     return true;
   }
 
@@ -4180,6 +4250,14 @@ export class GameScene extends Phaser.Scene {
 
     this.floor.setSize(field.width, field.height);
     this.drawBorder();
+
+    // The ambience is sized to the panel, so it is rebuilt on a resize.
+    for (const layer of [this.ambientEdge, this.scanlines, this.edgeGlow]) {
+      if (!layer) continue;
+      this.tweens.killTweensOf(layer);
+      layer.destroy();
+    }
+    this.buildAmbiance();
 
     const hud = hudGeometry(this.layout);
     this.safeTop = hud.safeTop;
