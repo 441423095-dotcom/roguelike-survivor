@@ -856,14 +856,10 @@ export class ShopScene extends Phaser.Scene {
 
   buildCard(item, index, cx, cy, w, h, s) {
     const rarity = rarityFor(item.rarity || 'common');
-    const rarityName = item.rarityName || rarity.name;
-    // Trinkets keep their own colour so they stay recognisable; a weapon is
-    // painted by its tier. The tag and the glow speak for both.
-    const color =
-      item.kind === 'weapon' || !Number.isFinite(item.color)
-        ? rarity.color
-        : item.color;
-    const hex = item.kind === 'weapon' ? rarity.hex : item.hex || rarity.hex;
+    // The border is the tier: white, green, blue, purple, gold. Nothing else on
+    // the card has to spell the quality out.
+    const color = rarity.color;
+    const hex = rarity.hex;
 
     const g = this.add.graphics().setDepth(2);
 
@@ -961,45 +957,32 @@ export class ShopScene extends Phaser.Scene {
       .setOrigin(0, 0.5)
       .setDepth(3);
 
-    const tagText = this.add
-      .text(textX, top + 26 * s, '', {
-        fontFamily: FONT,
-        fontSize: `${Math.round(9 * s)}px`,
-        color: hex
-      })
-      .setOrigin(0, 0.5)
-      .setDepth(3);
-
-    const paintTag = () => {
-      if (item.kind === 'weapon') {
-        tagText.setText(`${rarityName} · Lv${item.level || 1}`);
-        return;
-      }
-
-      const have = this.owned(item.key);
-      const kind = item.active ? '主动' : '被动';
-      const stacks = Math.max(1, item.stacks || 1);
-      const count = stacks > 1 ? ` ×${stacks}` : have > 0 ? ` ×${have}` : '';
-      tagText.setText(`${rarityName}${count} · ${kind}`);
-    };
-
-    paintTag();
-
-    // The one-line intro always shows: it starts right under the tag and uses
-    // whatever height the cell has, with more lines on taller cards.
+    // No rarity or 主动/被动 line: the border already carries the tier, and the
+    // second line is the card's whole width for its one-line intro. A gun's
+    // level rides at the front of that line instead.
     const descText = this.add
-      .text(left + 9 * s, top + 32 * s, item.desc, {
-        fontFamily: FONT,
-        fontSize: `${Math.round(9.5 * s)}px`,
-        color: COLORS.dim,
-        wordWrap: { width: Math.max(60, w - 18 * s) },
-        lineSpacing: Math.round(1 * s)
-      })
+      .text(
+        left + 9 * s,
+        top + 28 * s,
+        item.kind === 'weapon'
+          ? `Lv${item.level || 1} · ${item.desc}`
+          : item.desc,
+        {
+          fontFamily: FONT,
+          fontSize: `${Math.round(9.5 * s)}px`,
+          color: COLORS.dim,
+          wordWrap: { width: Math.max(60, w - 18 * s) },
+          lineSpacing: Math.round(1 * s)
+        }
+      )
       .setOrigin(0, 0)
       .setDepth(3);
 
     if (descText.setMaxLines) {
-      const lines = h >= 84 * s ? 3 : h >= 56 * s ? 2 : 1;
+      // As many lines as the cell honestly has room for, never more.
+      const lineH = Math.max(9, Math.round(10.5 * s));
+      const room = h - Math.round(30 * s);
+      const lines = Math.max(1, Math.min(3, Math.floor(room / lineH)));
       descText.setMaxLines(lines);
     }
 
@@ -1058,7 +1041,6 @@ export class ShopScene extends Phaser.Scene {
       descText.setVisible(!item.sold && h >= 40 * s);
 
       paintLock();
-      paintTag();
     };
 
     paint();
