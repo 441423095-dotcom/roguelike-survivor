@@ -195,15 +195,16 @@ export function rarityDesc(rarity) {
   return `${rarity.name}：${parts.join(' · ')}`;
 }
 
-/// A card's price: the gun's base worth, its tier and the wave it is sold in,
-/// plus what the extra levels are worth. Rounded to fives so the shelf is easy
-/// to read at a glance.
+/// A card's price: the gun's base worth, its tier, the wave it is sold in and
+/// the levels it comes with. The better the tier the steeper the wave and level
+/// terms, so late shops charge real money for real guns.
 export function weaponPrice(key, rarity, wave, level = 1) {
   const base = WEAPON_BASE_PRICE[key] || 24;
   const raw =
     base * rarity.price +
-    Math.max(0, wave - 1) * 1.5 +
-    (Math.max(1, level) - 1) * 6;
+    Math.max(0, wave - 1) * (1.5 + rarity.rank * 0.5) +
+    (Math.max(1, level) - 1) * 6 +
+    rarity.rank * (2 + Math.max(0, wave) * 0.2);
   return Math.max(15, Math.round(raw / 5) * 5);
 }
 

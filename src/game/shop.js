@@ -65,9 +65,10 @@ function rollItems(wave, stacks, count, discount) {
     const bonus = rarity.rank >= 2 ? 2 : 1;
     const take = Math.max(1, Math.min(max - have, bonus));
     const level = Math.min(max, have + take);
-    // Two stacks in one card are cheaper than buying the copies one by one.
+    // Two stacks in one card are cheaper than buying the copies one by one, and
+    // a better tier of a trinket costs a little more on top.
     const basePrice = roundPrice(
-      itemPrice(def, have, wave) * (1 + 0.6 * (take - 1))
+      itemPrice(def, have, wave) * (1 + 0.6 * (take - 1)) * (1 + 0.1 * rarity.rank)
     );
 
     return {
@@ -87,6 +88,7 @@ function rollItems(wave, stacks, count, discount) {
       basePrice,
       // 打折券 takes its slice off the whole shelf.
       price: roundPrice(basePrice * discount),
+      locked: false,
       sold: false
     };
   });
@@ -125,6 +127,7 @@ function rollWeapon(wave, loadout, minRank = 0) {
     level,
     basePrice: weaponPrice(key, rarity, wave, level),
     price: weaponPrice(key, rarity, wave, level),
+    locked: false,
     sold: false
   };
 }

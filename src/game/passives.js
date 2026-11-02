@@ -375,8 +375,8 @@ export const ITEM_BY_KEY = Object.fromEntries(
 /// Prices climb a little each wave and a lot each time the player already owns
 /// one, so the third frog costs more than the first.
 export function itemPrice(def, owned, wave) {
-  const base = (def.basePrice || 20) + Math.max(0, owned) * 6 + wave * 1.5;
-  return Math.min(45, Math.max(15, Math.round(base / 5) * 5));
+  const base = (def.basePrice || 20) + Math.max(0, owned) * 6 + wave * 2.2;
+  return Math.min(60, Math.max(15, Math.round(base / 5) * 5));
 }
 
 /// How much 打折券 takes off the shelf: 15% a copy, with a floor so a couple of

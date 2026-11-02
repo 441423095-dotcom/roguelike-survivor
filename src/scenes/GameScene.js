@@ -5,7 +5,12 @@
 import { computeLayout, hudGeometry } from '../ui/layout.js';
 import { COLORS, FONT } from '../ui/style.js';
 import { rollCards, UPGRADE_BY_KEY } from '../game/upgrades.js';
-import { rollShopItems, SHOP_REFRESH_COST } from '../game/shop.js';
+import {
+  rollShopItems,
+  SHOP_REFRESH_COST,
+  ITEM_SLOTS,
+  WEAPON_OFFERS
+} from '../game/shop.js';
 import {
   ITEM_POOL,
   ITEM_BY_KEY,
@@ -3153,16 +3158,38 @@ export class GameScene extends Phaser.Scene {
   }
 
   /// The shelf is two rows: ITEM_SLOTS trinkets on top and the weapon offers
-  /// under them, which is the order the shop draws them, so a card's index is
-  /// always the index the shop taps.
+  /// under them. Whatever the player locked is carried over — through a refresh
+  /// and into the next wave's shop — and the rest is rolled fresh.
   buildShopStock() {
-    this.shopItems = rollShopItems(
+    const previous = this.shopItems || [];
+    const kept = previous.filter((item) => item.locked && !item.sold);
+    const keptItems = kept.filter((item) => item.kind === 'item');
+    const keptWeapons = kept.filter((item) => item.kind === 'weapon');
+
+    const fresh = rollShopItems(
       this.state.wave,
       this.items,
       this.state.weapons
     );
+    const items = fresh.filter((item) => item.kind !== 'weapon');
+    const weapons = fresh.filter((item) => item.kind === 'weapon');
+    const roomForItems = Math.max(0, ITEM_SLOTS - keptItems.length);
+    const roomForWeapons = Math.max(0, WEAPON_OFFERS - keptWeapons.length);
+
+    this.shopItems = keptItems
+      .concat(items.slice(0, roomForItems), keptWeapons)
+      .concat(weapons.slice(0, roomForWeapons));
 
     return this.shopItems;
+  }
+
+  /// Pins a card to the shelf, so a re-roll and the next visit keep it.
+  toggleShopLock(index) {
+    const item = this.shopItems[index];
+    if (!item || item.sold) return false;
+
+    item.locked = !item.locked;
+    return item.locked;
   }
 
   /// Buying from the shelf. The effect is applied first and the coins are only

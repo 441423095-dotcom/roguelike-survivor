@@ -876,6 +876,18 @@ export class ShopScene extends Phaser.Scene {
     const right = cx + w / 2;
     const bottom = cy + h / 2;
 
+    // A lock in the top-right corner: pin a card so it survives the next
+    // re-roll and is still here in the next wave's shop.
+    const lockSize = Math.round(18 * s);
+    const lockX = right - 8 * s - lockSize / 2;
+    const lockY = top + 8 * s + lockSize / 2;
+
+    const lockG = this.add.graphics().setDepth(4);
+    const lockIcon = this.add
+      .image(lockX, lockY, 'icon-lock')
+      .setDisplaySize(lockSize * 0.8, lockSize * 0.8)
+      .setDepth(5);
+
     // Every price sits on one baseline in the bottom-right corner of its cell,
     // with the coin tucked against the number, so the grid reads as columns.
     const priceX = right - 9 * s;
@@ -970,16 +982,45 @@ export class ShopScene extends Phaser.Scene {
 
     if (descText.setMaxLines) descText.setMaxLines(2);
 
+    const paintLock = () => {
+      const locked = !!item.locked;
+      const usable = !item.sold;
+
+      lockG.clear();
+      lockG.setVisible(usable);
+      lockIcon.setVisible(usable);
+      if (!usable) return;
+
+      lockG.fillStyle(locked ? 0x3a2f10 : 0x141c28, locked ? 1 : 0.8);
+      lockG.fillRoundedRect(
+        lockX - lockSize / 2,
+        lockY - lockSize / 2,
+        lockSize,
+        lockSize,
+        6
+      );
+      lockG.lineStyle(2, locked ? COLORS.gold : 0x3a4450, locked ? 1 : 0.5);
+      lockG.strokeRoundedRect(
+        lockX - lockSize / 2,
+        lockY - lockSize / 2,
+        lockSize,
+        lockSize,
+        6
+      );
+      lockIcon.setTint(locked ? COLORS.gold : 0x8fa3b0);
+    };
+
     const paint = () => {
       const affordable = this.coins() >= item.price;
+      const locked = !!item.locked;
 
       g.clear();
       g.fillStyle(item.sold ? 0x101a16 : 0x0f1521, 0.97);
       g.fillRoundedRect(left, top, w, h, 12);
       g.lineStyle(
         2,
-        item.sold ? 0x39a05a : color,
-        item.sold ? 0.5 : affordable ? 0.85 : 0.35
+        item.sold ? 0x39a05a : locked ? COLORS.gold : color,
+        item.sold ? 0.5 : locked ? 0.95 : affordable ? 0.85 : 0.35
       );
       g.strokeRoundedRect(left, top, w, h, 12);
 
@@ -996,6 +1037,7 @@ export class ShopScene extends Phaser.Scene {
       const room = Math.round(38 * s) + descText.height < h - 18 * s;
       descText.setVisible(!item.sold && room);
 
+      paintLock();
       paintTag();
     };
 
@@ -1004,7 +1046,32 @@ export class ShopScene extends Phaser.Scene {
     const zone = this.add.zone(cx, cy, w, h).setInteractive();
     zone.on('pointerdown', () => this.buy(index));
 
+    // Created after the card's own zone, so a tap on the lock pins the card
+    // instead of buying it.
+    const lockZone = this.add
+      .zone(lockX, lockY, lockSize + 12 * s, lockSize + 12 * s)
+      .setInteractive();
+    lockZone.on('pointerdown', () => this.toggleLock(index));
+
     this.refs.push({ item, paint });
+  }
+
+  /// Pins or unpins a card. A locked card stays on the shelf through a refresh
+  /// and through the next wave's shop until it is bought.
+  toggleLock(index) {
+    const run = this.run();
+    const item = (this.stock() || [])[index];
+    if (!run || !run.toggleShopLock || !item || item.sold) return;
+
+    const locked = run.toggleShopLock(index);
+    haptic('tick');
+
+    // Repaint just this card: a full rebuild would wipe the toast that says
+    // what just happened.
+    const ref = this.refs.find((entry) => entry.item === item);
+    if (ref) ref.paint();
+
+    this.toast(locked ? `已锁定：${item.name}` : `已解锁：${item.name}`);
   }
 
   /// Why a card cannot be bought right now: '' when it can, otherwise a code

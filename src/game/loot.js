@@ -28,11 +28,11 @@ export function xpForLevel(wave) {
 }
 
 /// How many coin pickups a wave pays out in total. The opening waves get enough
-/// for a first purchase; the deep waves stop snowballing because the budget only
-/// grows gently while kills multiply.
+/// for a first purchase; the deep waves grow with the shelf's prices, so a good
+/// gun stays reachable instead of a fantasy.
 export function coinBudgetForWave(wave) {
   const w = Math.max(1, wave);
-  return Math.round(24 + 7 * w);
+  return Math.round(24 + 9 * w);
 }
 
 /// Waves 1-3 only ever drop starter guns; every three waves after that unlocks
