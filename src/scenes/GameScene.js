@@ -23,7 +23,7 @@ import {
 import { Sfx, setMusicTrack, duckMusic } from '../game/audio.js';
 import { xpForLevel, coinBudgetForWave } from '../game/loot.js';
 import { rarityColor, rarityFor } from '../game/rarities.js';
-import { nextRarity, mergeCost } from '../game/rarities.js';
+import { nextRarity, mergeCost, rollChestRarity, weaponLevel, weaponName } from '../game/rarities.js';
 import { recordAchievement } from '../game/achievements.js';
 import {
   metaBonuses,
@@ -1680,6 +1680,15 @@ export class GameScene extends Phaser.Scene {
     const kind = pickup.getData('kind');
     const value = pickup.getData('value') || 1;
 
+    const glow = pickup.getData('glow');
+    if (glow) glow.destroy();
+
+    if (kind === 'chest') {
+      this.openChest(pickup);
+      pickup.destroy();
+      return;
+    }
+
     if (kind === 'coin') {
       this.addCoins(value);
       Sfx.coin();
@@ -1949,7 +1958,8 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /// A melee swing: a short arc that hits everything in front and throws it.
+  /// A melee swing: a wide arc that hits everything in front, throws it and
+  /// leaves it staggering for a moment.
   swingWeapon(stats, target) {
     const base = Math.atan2(
       target.y - this.player.y,
@@ -1960,7 +1970,7 @@ export class GameScene extends Phaser.Scene {
     const arc = this.add.graphics().setDepth(8);
     arc.fillStyle(stats.def.color, 0.3);
     arc.beginPath();
-    arc.arc(this.player.x, this.player.y, r, base - 0.9, base + 0.9, false);
+    arc.arc(this.player.x, this.player.y, r, base - 1.15, base + 1.15, false);
     arc.lineTo(this.player.x, this.player.y);
     arc.closePath();
     arc.fillPath();
@@ -1981,18 +1991,20 @@ export class GameScene extends Phaser.Scene {
         enemy.x,
         enemy.y
       );
-      if (dist > r + 14) continue;
+      if (dist > r + 16) continue;
 
       const angle = Math.atan2(
         enemy.y - this.player.y,
         enemy.x - this.player.x
       );
-      if (Math.abs(Phaser.Math.Angle.Wrap(angle - base)) > 1.1) continue;
+      if (Math.abs(Phaser.Math.Angle.Wrap(angle - base)) > 1.3) continue;
 
       this.damageEnemy(enemy, stats.damage);
-      enemy.setData('knockUntil', this.time.now + 260);
+      enemy.setData('knockUntil', this.time.now + 420);
       enemy.setData('knockX', Math.cos(angle));
       enemy.setData('knockY', Math.sin(angle));
+      // The shove is followed by a stagger, so the pan really does hold a lane.
+      enemy.setData('slowUntil', this.time.now + 650);
     }
 
     Sfx.hit();
@@ -2043,16 +2055,17 @@ export class GameScene extends Phaser.Scene {
     if (count > 0) Sfx.zap();
   }
 
-  /// 毒液蘑菇: a puddle of poison at the player's feet.
+  /// 毒液蘑菇: a wide puddle of poison at the player's feet, big enough to close
+  /// a lane rather than be walked around.
   dropPoisonPool(stats) {
     const pool = this.add
-      .circle(this.player.x, this.player.y, 44, 0x9be564, 0.28)
+      .circle(this.player.x, this.player.y, 66, 0x9be564, 0.28)
       .setDepth(1);
 
     this.poisonPools.push({
       sprite: pool,
       damage: stats.damage,
-      until: this.time.now + 4500,
+      until: this.time.now + 6000,
       tickAt: 0
     });
 
@@ -2095,7 +2108,7 @@ export class GameScene extends Phaser.Scene {
             pool.sprite.y,
             enemy.x,
             enemy.y
-          ) > 52
+          ) > 74
         ) {
           continue;
         }
@@ -3435,6 +3448,139 @@ export class GameScene extends Phaser.Scene {
     this.makeEnemy(def, x, y);
   }
 
+  /// 赛博宝箱: the reward a boss wave leaves behind. It pulses where it lands and
+  /// waits on the floor until the player walks over it.
+  spawnChest() {
+    const field = this.layout.field;
+    const x = Phaser.Math.Between(70, Math.max(80, field.width - 70));
+    const y = Phaser.Math.Between(
+      this.safeTop + 90,
+      Math.max(this.safeTop + 100, field.height - 90)
+    );
+
+    const glow = this.add.circle(x, y, 30, 0xffd166, 0.18).setDepth(2);
+    this.tweens.add({
+      targets: glow,
+      alpha: 0.42,
+      scale: 1.3,
+      duration: 700,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.inOut'
+    });
+
+    const chest = this.add
+      .image(x, y, 'crate')
+      .setDepth(3)
+      .setTint(0xffd166)
+      .setScale(1.1);
+
+    this.tweens.add({
+      targets: chest,
+      scale: { from: 1, to: 1.18 },
+      duration: 640,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.inOut'
+    });
+
+    chest.setData('kind', 'chest');
+    chest.setData('glow', glow);
+    this.pickups.push(chest);
+
+    this.chestToast('赛博宝箱掉落！', '#ffe66d');
+    haptic('level_up');
+    Sfx.buy();
+  }
+
+  /// What a random trinket the run can still take looks like.
+  pickChestItem() {
+    const pool = ITEM_POOL.filter(
+      (def) =>
+        (this.items[def.key] || 0) < (def.max || 1) &&
+        (!def.active || !this.character.noActive)
+    );
+
+    if (pool.length === 0) return null;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  /// Opens a chest: one or two rewards at a quality the shop rarely offers.
+  openChest(chest) {
+    const wave = this.state.wave;
+    const count = Math.random() < 0.4 ? 2 : 1;
+
+    this.spawnBurst(chest.x, chest.y, 0xffd166, 14);
+    haptic('level_up');
+    Sfx.buy();
+
+    for (let i = 0; i < count; i++) {
+      const rarity = rollChestRarity();
+
+      const wantWeapon =
+        this.state.weapons.length < WEAPON_SLOTS && Math.random() < 0.45;
+
+      if (wantWeapon) {
+        const keys = Object.keys(WEAPONS);
+        const key = keys[Math.floor(Math.random() * keys.length)];
+        const def = WEAPONS[key];
+        if (def) {
+          this.state.weapons.push({
+            key,
+            level: weaponLevel(wave),
+            rarity: rarity.key
+          });
+          this.drawWeaponSlots();
+          this.chestToast(
+            `获得${rarity.name}武器：${weaponName(def, rarity.key)}！`,
+            rarity.hex
+          );
+          continue;
+        }
+      }
+
+      const def = this.pickChestItem();
+      if (def && this.addItem(def.key)) {
+        this.chestToast(`获得${rarity.name}道具：${def.name}！`, rarity.hex);
+        continue;
+      }
+
+      const coins = 20 + wave * 2;
+      this.addCoins(coins);
+      this.chestToast(`获得 ${coins} 金币！`, '#ffe66d');
+    }
+  }
+
+  /// A reward line that names the quality it came in at.
+  chestToast(text, color) {
+    const W = this.layout.width;
+    const H = this.layout.height;
+
+    const label = this.add
+      .text(W / 2, H * 0.4, text, {
+        fontFamily: FONT,
+        fontSize: `${Math.round(15 * this.layout.uiScale)}px`,
+        color: color || '#ffe66d',
+        fontStyle: 'bold',
+        backgroundColor: '#0b1220',
+        padding: {
+          x: Math.round(12 * this.layout.uiScale),
+          y: Math.round(8 * this.layout.uiScale)
+        }
+      })
+      .setOrigin(0.5)
+      .setDepth(30);
+
+    this.tweens.add({
+      targets: label,
+      y: label.y - 34,
+      alpha: 0,
+      delay: 1600,
+      duration: 500,
+      onComplete: () => label.destroy()
+    });
+  }
+
   endWave() {
     if (this.waveEnding) return;
     this.waveEnding = true;
@@ -3490,6 +3636,9 @@ export class GameScene extends Phaser.Scene {
     this.announceAchievements(
       recordAchievement({ maxCoins: Math.floor(this.state.coins) })
     );
+
+    // A boss wave leaves a cyber chest on the arena floor.
+    if (isBossWave(this.state.wave)) this.spawnChest();
 
     // Experience earned this wave is spent now, on the way into the shop, so the
     // shop's prices are weighed against the numbers the player actually has.

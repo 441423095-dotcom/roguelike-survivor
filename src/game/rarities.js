@@ -229,6 +229,15 @@ export function rollWeaponRarity(wave, minRank = 0) {
   return WEAPON_RARITIES[Math.min(floor, WEAPON_RARITIES.length - 1)];
 }
 
+/// The tier a cyber chest hands out: never white or green, with roughly a third
+/// of the rolls purple or gold.
+export function rollChestRarity() {
+  const roll = Math.random();
+  if (roll < 0.08) return rarityFor('legendary');
+  if (roll < 0.3) return rarityFor('epic');
+  return rarityFor('rare');
+}
+
 /// The best tier the shelf is promised to hold. From wave ten a blue card is
 /// always on the table; purple and gold are never guaranteed, they have to be
 /// rolled.
