@@ -88,9 +88,6 @@ export class GameScene extends Phaser.Scene {
     // so a card never stops a fight halfway through.
     this.levelsQueued = 0;
     this.pendingWaveStart = false;
-    this.arenaEvents = 0;
-    this.lastArenaEvent = null;
-    this.eventTimer = null;
     this.shopItems = [];
     this.pendingBuff = null;
     this.activeBuff = null;
@@ -268,10 +265,6 @@ export class GameScene extends Phaser.Scene {
     this.input.off('pointerdown', this.onPointerDown, this);
     this.input.off('pointerup', this.onPointerUp, this);
     this.input.off('pointerupoutside', this.onPointerUp, this);
-    if (this.eventTimer) {
-      this.eventTimer.remove();
-      this.eventTimer = null;
-    }
     if (this.spawnTimer) {
       this.spawnTimer.remove();
       this.spawnTimer = null;
@@ -3384,8 +3377,6 @@ export class GameScene extends Phaser.Scene {
         bossDef ? `击败「${bossDef.name}」结束这一波` : '击败首领结束这一波'
       );
       this.time.delayedCall(700, () => this.spawnBoss());
-      // Boss waves get battlefield events too; the fight is still the main event.
-      this.scheduleArenaEvents();
       return;
     }
 
@@ -3399,9 +3390,6 @@ export class GameScene extends Phaser.Scene {
       callback: this.spawnTick,
       callbackScope: this
     });
-
-    // The battlefield itself starts acting up a few seconds in.
-    this.scheduleArenaEvents();
 
     this.banner(
       isEndlessWave(wave) ? `无尽波 ${wave}` : `第 ${wave} 波`,
@@ -3447,317 +3435,9 @@ export class GameScene extends Phaser.Scene {
     this.makeEnemy(def, x, y);
   }
 
-  // ---------------------------------------------------------- arena events
-
-  /// Schedules this wave's battlefield events: one about five seconds in, and a
-  /// second later on if the wave runs long enough. Two a wave at most, and never
-  /// on a boss wave, which has enough going on.
-  scheduleArenaEvents() {
-    this.arenaEvents = 0;
-    this.lastArenaEvent = null;
-
-    if (this.eventTimer) {
-      this.eventTimer.remove();
-      this.eventTimer = null;
-    }
-
-    this.eventTimer = this.time.delayedCall(5000, () => this.triggerArenaEvent());
-  }
-
-  triggerArenaEvent() {
-    this.eventTimer = null;
-
-    if (!this.running || this.waveEnding) return;
-    if ((this.arenaEvents || 0) >= 2) return;
-
-    this.arenaEvents = (this.arenaEvents || 0) + 1;
-
-    const kinds = ['meteor', 'laser', 'rift'];
-    let kind = kinds[Math.floor(Math.random() * kinds.length)];
-    if (kind === this.lastArenaEvent) {
-      kind = kinds[(kinds.indexOf(kind) + 1) % kinds.length];
-    }
-    this.lastArenaEvent = kind;
-
-    if (kind === 'meteor') this.eventMeteor();
-    else if (kind === 'laser') this.eventLaser();
-    else this.eventRift();
-
-    if (this.arenaEvents < 2) {
-      this.eventTimer = this.time.delayedCall(
-        9000 + Math.random() * 5000,
-        () => this.triggerArenaEvent()
-      );
-    }
-  }
-
-  /// An event that was set up for one wave and is still running belongs to that
-  /// wave only: the next wave must not inherit a stray meteor or beam.
-  arenaEventAlive(wave) {
-    return this.running && !this.waveEnding && this.state.wave === wave;
-  }
-
-  /// Should the battlefield hurt this enemy? Heavy on ordinary bodies, a chip on
-  /// elites and bosses, so an event never decides a boss fight on its own.
-  eventDamageTo(enemy) {
-    const maxHp = enemy.getData('maxHp') || 20;
-    if (enemy.getData('aura')) return Math.max(10, Math.round(maxHp * 0.05));
-    return Math.max(12, Math.round(maxHp * 0.3));
-  }
-
-  /// 陨石雨: three red circles appear, and one second later rocks land in them.
-  /// They hurt whatever is under them, the player included.
-  eventMeteor() {
-    const field = this.layout.field;
-    const wave = this.state.wave;
-    const radius = 45;
-    const points = [];
-
-    for (let i = 0; i < 3; i++) {
-      points.push({
-        x: Phaser.Math.Between(60, Math.max(70, field.width - 60)),
-        y: Phaser.Math.Between(
-          this.safeTop + 60,
-          Math.max(this.safeTop + 70, field.height - 70)
-        )
-      });
-    }
-
-    this.notify('陨石雨！', field.centerX, this.safeTop + 44);
-    haptic('charge');
-
-    const rings = points.map((p) =>
-      this.add
-        .circle(p.x, p.y, radius, 0xff4d4d, 0.12)
-        .setStrokeStyle(2, 0xff6a6a, 0.85)
-        .setDepth(2)
-    );
-
-    this.tweens.add({
-      targets: rings,
-      alpha: { from: 0.55, to: 1 },
-      duration: 250,
-      yoyo: true,
-      repeat: 1
-    });
-
-    this.time.delayedCall(1000, () => {
-      for (const ring of rings) ring.destroy();
-      if (!this.arenaEventAlive(wave)) return;
-
-      for (const p of points) this.meteorImpact(p.x, p.y, radius);
-    });
-  }
-
-  meteorImpact(x, y, radius) {
-    const flash = this.add.circle(x, y, radius, 0xffb36b, 0.5).setDepth(7);
-    this.tweens.add({
-      targets: flash,
-      alpha: 0,
-      scale: 1.25,
-      duration: 260,
-      onComplete: () => flash.destroy()
-    });
-
-    this.spawnBurst(x, y, 0xff9a3f, 10);
-    this.cameras.main.shake(120, 0.004);
-    haptic('impact');
-    Sfx.mine();
-
-    for (const enemy of this.enemies.getChildren()) {
-      if (!enemy.active) continue;
-      if (Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y) > radius + 10) {
-        continue;
-      }
-      this.damageEnemy(enemy, this.eventDamageTo(enemy));
-    }
-
-    const now = this.time.now;
-    if (now < this.dashUntil || now < this.invulnUntil) return;
-
-    if (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) <= radius + 8) {
-      this.hurt(10 + Math.round(this.state.wave * 0.6));
-    }
-  }
-
-  /// 激光扫射: a warning line settles, then a full-width beam crawls down the
-  /// arena, burning only the horde.
-  eventLaser() {
-    const field = this.layout.field;
-    const startY = this.safeTop + 70;
-    const wave = this.state.wave;
-
-    this.notify('激光扫射！', field.centerX, this.safeTop + 44);
-    haptic('charge');
-
-    const warn = this.add
-      .rectangle(field.centerX, startY, field.width, 3, 0xff4d4d, 0.8)
-      .setDepth(6);
-
-    this.tweens.add({
-      targets: warn,
-      alpha: { from: 0.3, to: 1 },
-      duration: 200,
-      yoyo: true,
-      repeat: 2
-    });
-
-    this.time.delayedCall(1000, () => {
-      warn.destroy();
-      if (!this.arenaEventAlive(wave)) return;
-
-      const beam = this.add
-        .rectangle(field.centerX, startY, field.width, 26, 0xff6a6a, 0.35)
-        .setDepth(6);
-      const core = this.add
-        .rectangle(field.centerX, startY, field.width, 3, 0xffffff, 0.9)
-        .setDepth(7);
-
-      const hit = new Set();
-      const speed = (field.height + 40 - startY) / 2600;
-
-      const sweep = (time, delta) => {
-        if (!this.arenaEventAlive(wave)) {
-          this.events.off('update', sweep);
-          beam.destroy();
-          core.destroy();
-          return;
-        }
-
-        const step = speed * delta;
-        beam.y += step;
-        core.y += step;
-
-        for (const enemy of this.enemies.getChildren()) {
-          if (!enemy.active || hit.has(enemy)) continue;
-          if (Math.abs(enemy.y - beam.y) > 20) continue;
-
-          hit.add(enemy);
-          this.damageEnemy(enemy, this.eventDamageTo(enemy));
-        }
-
-        if (beam.y > field.height + 20) {
-          this.events.off('update', sweep);
-          beam.destroy();
-          core.destroy();
-        }
-      };
-
-      this.events.on('update', sweep);
-    });
-  }
-
-  /// 数据裂缝: a hole tears open, drags nearby enemies in for a moment, then
-  /// bursts.
-  eventRift() {
-    const field = this.layout.field;
-    const wave = this.state.wave;
-    const radius = 110;
-    const x = Phaser.Math.Between(90, Math.max(100, field.width - 90));
-    const y = Phaser.Math.Between(
-      this.safeTop + 100,
-      Math.max(this.safeTop + 110, field.height - 100)
-    );
-
-    this.notify('数据裂缝！', field.centerX, this.safeTop + 44);
-    haptic('charge');
-
-    const warn = this.add
-      .circle(x, y, radius, 0xb07bff, 0.08)
-      .setStrokeStyle(2, 0xb07bff, 0.6)
-      .setDepth(1);
-
-    this.tweens.add({
-      targets: warn,
-      alpha: { from: 0.5, to: 1 },
-      duration: 250,
-      yoyo: true,
-      repeat: 1
-    });
-
-    this.time.delayedCall(1000, () => {
-      warn.destroy();
-      if (!this.arenaEventAlive(wave)) return;
-
-      const hole = this.add
-        .circle(x, y, 26, 0x160b26, 0.95)
-        .setStrokeStyle(2, 0xb07bff, 0.9)
-        .setDepth(3);
-
-      this.tweens.add({
-        targets: hole,
-        scale: { from: 0.6, to: 1 },
-        duration: 240,
-        ease: 'Back.out'
-      });
-
-      const until = this.time.now + 1300;
-
-      const pull = () => {
-        if (!this.arenaEventAlive(wave)) {
-          this.events.off('update', pull);
-          hole.destroy();
-          return;
-        }
-
-        for (const enemy of this.enemies.getChildren()) {
-          if (!enemy.active) continue;
-
-          const dx = x - enemy.x;
-          const dy = y - enemy.y;
-          const d = Math.hypot(dx, dy) || 1;
-          if (d > radius) continue;
-
-          // Reuse the knock-back window so the pull wins over the chase.
-          enemy.setData('knockUntil', this.time.now + 120);
-          enemy.setData('knockX', dx / d * 0.5);
-          enemy.setData('knockY', dy / d * 0.5);
-        }
-
-        if (this.time.now >= until) {
-          this.events.off('update', pull);
-          this.riftBurst(x, y, hole, radius);
-        }
-      };
-
-      this.events.on('update', pull);
-    });
-  }
-
-  riftBurst(x, y, hole, radius) {
-    hole.destroy();
-
-    const flash = this.add.circle(x, y, radius, 0xb07bff, 0.3).setDepth(6);
-    this.tweens.add({
-      targets: flash,
-      alpha: 0,
-      scale: 1.3,
-      duration: 320,
-      onComplete: () => flash.destroy()
-    });
-
-    this.spawnBurst(x, y, 0xb07bff, 12);
-    this.cameras.main.shake(140, 0.005);
-    haptic('impact');
-    Sfx.zap();
-
-    for (const enemy of this.enemies.getChildren()) {
-      if (!enemy.active) continue;
-      if (Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y) > radius + 10) {
-        continue;
-      }
-      this.damageEnemy(enemy, this.eventDamageTo(enemy));
-    }
-  }
-
   endWave() {
     if (this.waveEnding) return;
     this.waveEnding = true;
-
-    if (this.eventTimer) {
-      this.eventTimer.remove();
-      this.eventTimer = null;
-    }
 
     if (this.spawnTimer) {
       this.spawnTimer.remove();
