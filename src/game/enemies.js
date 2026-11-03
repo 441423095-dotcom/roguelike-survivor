@@ -149,9 +149,9 @@ export const BOSS_TYPES = [
     name: '冲撞巨兽',
     variant: 'charge',
     texture: 'boss',
-    hp: 340,
+    hp: 1500,
     speed: 62,
-    damage: 15,
+    damage: 8,
     radius: 40,
     offset: 20,
     scale: 1.08,
@@ -164,16 +164,16 @@ export const BOSS_TYPES = [
     behaviour: 'boss',
     aura: 196,
     auraColor: 0xff3d6e,
-    shotDamage: 9
+    shotDamage: 5
   },
   {
     key: 'ring',
     name: '弹幕之眼',
     variant: 'barrage',
     texture: 'boss',
-    hp: 300,
+    hp: 1350,
     speed: 44,
-    damage: 12,
+    damage: 7,
     radius: 40,
     offset: 20,
     scale: 0.86,
@@ -186,16 +186,16 @@ export const BOSS_TYPES = [
     behaviour: 'boss',
     aura: 168,
     auraColor: 0x63ffe0,
-    shotDamage: 8
+    shotDamage: 5
   },
   {
     key: 'summoner',
     name: '召唤祭司',
     variant: 'summon',
     texture: 'boss',
-    hp: 380,
+    hp: 1650,
     speed: 48,
-    damage: 13,
+    damage: 8,
     radius: 40,
     offset: 20,
     scale: 0.96,
@@ -208,7 +208,7 @@ export const BOSS_TYPES = [
     behaviour: 'boss',
     aura: 176,
     auraColor: 0xb07bff,
-    shotDamage: 7
+    shotDamage: 4
   }
 ];
 

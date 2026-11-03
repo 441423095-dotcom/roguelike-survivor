@@ -4,6 +4,7 @@
 
 import { computeLayout, hudGeometry } from '../ui/layout.js';
 import { COLORS, FONT } from '../ui/style.js';
+import { makeButton } from '../ui/widgets.js';
 import { rollCards, UPGRADE_BY_KEY } from '../game/upgrades.js';
 import {
   rollShopItems,
@@ -96,6 +97,9 @@ export class GameScene extends Phaser.Scene {
     // Set while the level-up cards of a finished wave are handed out; the shop
     // opens once the last one is picked.
     this.shopAfterLevels = false;
+    // A boss wave ends in a chest ceremony before the settlement begins.
+    this.chestPhase = false;
+    this.chestButton = null;
     this.weaponChoice = null;
     this.pausedByUser = false;
     this.running = true;
@@ -1665,6 +1669,10 @@ export class GameScene extends Phaser.Scene {
         const speed = 170 + 430 * pull;
         pickup.x += (dx / dist) * speed * dt;
         pickup.y += (dy / dist) * speed * dt;
+
+        // A chest carries its own glow, which has to travel with it.
+        const glow = pickup.getData('glow');
+        if (glow) glow.setPosition(pickup.x, pickup.y);
       }
 
       if (dist < 20) {
@@ -1682,6 +1690,12 @@ export class GameScene extends Phaser.Scene {
 
     const glow = pickup.getData('glow');
     if (glow) glow.destroy();
+
+    const beam = pickup.getData('beam');
+    if (beam) beam.destroy();
+
+    const core = pickup.getData('core');
+    if (core) core.destroy();
 
     if (kind === 'chest') {
       this.openChest(pickup);
@@ -3448,20 +3462,40 @@ export class GameScene extends Phaser.Scene {
     this.makeEnemy(def, x, y);
   }
 
-  /// 赛博宝箱: the reward a boss wave leaves behind. It pulses where it lands and
-  /// waits on the floor until the player walks over it.
-  spawnChest() {
+  /// 赛博宝箱: the reward a boss wave leaves behind. A light column marks it and
+  /// it waits on the floor until the player walks over it.
+  spawnChest(x, y) {
     const field = this.layout.field;
-    const x = Phaser.Math.Between(70, Math.max(80, field.width - 70));
-    const y = Phaser.Math.Between(
-      this.safeTop + 90,
-      Math.max(this.safeTop + 100, field.height - 90)
-    );
+    const cx = x === undefined ? field.centerX : x;
+    const cy =
+      y === undefined
+        ? Phaser.Math.Between(
+            this.safeTop + 90,
+            Math.max(this.safeTop + 100, field.height - 90)
+          )
+        : y;
 
-    const glow = this.add.circle(x, y, 30, 0xffd166, 0.18).setDepth(2);
+    // The light pillar, so it can be found from anywhere on screen.
+    const beam = this.add
+      .rectangle(cx, field.height / 2, 46, field.height, 0xffd166, 0.08)
+      .setDepth(1);
+    const core = this.add
+      .rectangle(cx, field.height / 2, 14, field.height, 0xfff3c4, 0.13)
+      .setDepth(1);
+
+    this.tweens.add({
+      targets: [beam, core],
+      alpha: { from: 0.55, to: 1 },
+      duration: 900,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.inOut'
+    });
+
+    const glow = this.add.circle(cx, cy, 34, 0xffd166, 0.2).setDepth(2);
     this.tweens.add({
       targets: glow,
-      alpha: 0.42,
+      alpha: 0.45,
       scale: 1.3,
       duration: 700,
       yoyo: true,
@@ -3470,14 +3504,14 @@ export class GameScene extends Phaser.Scene {
     });
 
     const chest = this.add
-      .image(x, y, 'crate')
+      .image(cx, cy, 'crate')
       .setDepth(3)
       .setTint(0xffd166)
-      .setScale(1.1);
+      .setScale(1.15);
 
     this.tweens.add({
       targets: chest,
-      scale: { from: 1, to: 1.18 },
+      scale: { from: 1, to: 1.2 },
       duration: 640,
       yoyo: true,
       repeat: -1,
@@ -3486,9 +3520,11 @@ export class GameScene extends Phaser.Scene {
 
     chest.setData('kind', 'chest');
     chest.setData('glow', glow);
+    chest.setData('beam', beam);
+    chest.setData('core', core);
     this.pickups.push(chest);
 
-    this.chestToast('赛博宝箱掉落！', '#ffe66d');
+    this.chestToast('赛博宝箱出现！', '#ffe66d');
     haptic('level_up');
     Sfx.buy();
   }
@@ -3549,6 +3585,9 @@ export class GameScene extends Phaser.Scene {
       this.addCoins(coins);
       this.chestToast(`获得 ${coins} 金币！`, '#ffe66d');
     }
+
+    // A boss chest closes the ceremony: the way on appears once it is opened.
+    if (this.chestPhase) this.showChestContinue();
   }
 
   /// A reward line that names the quality it came in at.
@@ -3637,9 +3676,18 @@ export class GameScene extends Phaser.Scene {
       recordAchievement({ maxCoins: Math.floor(this.state.coins) })
     );
 
-    // A boss wave leaves a cyber chest on the arena floor.
-    if (isBossWave(this.state.wave)) this.spawnChest();
+    // A boss wave ends in a quiet ceremony instead of the usual rush: the arena
+    // empties, the music softens, and a chest waits in the middle.
+    if (isBossWave(this.state.wave)) {
+      this.beginBossLoot();
+      return;
+    }
 
+    this.finishWave();
+  }
+
+  /// The wave proper is over: level-up cards first, then the shop.
+  finishWave() {
     // Experience earned this wave is spent now, on the way into the shop, so the
     // shop's prices are weighed against the numbers the player actually has.
     // Deferred one tick, so a boss dying inside a physics step never freezes the
@@ -3656,6 +3704,60 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.openShop();
+  }
+
+  /// 首领战结束: clear the screen, hush the music and put a chest in the middle
+  /// of the arena. The player has to walk onto it.
+  beginBossLoot() {
+    this.chestPhase = true;
+    this.bossFight = false;
+    duckMusic(0.25);
+
+    for (const shot of this.enemyShots.getChildren().slice()) {
+      if (shot.active) this.kill(shot);
+    }
+
+    const field = this.layout.field;
+    this.spawnChest(field.centerX, field.centerY);
+
+    this.banner('首领已击败', '走到中间的赛博宝箱上开启奖励');
+    haptic('wave_clear');
+  }
+
+  /// After the chest has been opened: the way on to the settlement.
+  showChestContinue() {
+    if (this.chestButton) return;
+
+    const s = this.layout.uiScale;
+    const W = this.layout.width;
+    const H = this.layout.height;
+
+    this.chestButton = makeButton(this, {
+      x: W / 2,
+      y: H * 0.66,
+      width: Math.min(W - 80, 260 * s),
+      height: Math.round(52 * s),
+      label: '进入补给站',
+      fontSize: Math.round(16 * s),
+      accent: 0xffd166,
+      depth: 20,
+      onPress: () => this.finishChestPhase()
+    });
+  }
+
+  finishChestPhase() {
+    if (!this.chestPhase) return;
+
+    this.chestPhase = false;
+    duckMusic(1);
+
+    if (this.chestButton) {
+      for (const item of this.chestButton.items) item.destroy();
+      this.chestButton = null;
+    }
+
+    haptic('tick');
+    this.finishWave();
   }
 
   startNextWave() {
@@ -3779,8 +3881,10 @@ export class GameScene extends Phaser.Scene {
     const scale = waveScaling(wave);
 
     // The boss is a checkpoint rather than one more body: it outgrows the horde
-    // it leads, so every fifth wave is a real wall.
-    const bossBoost = def.behaviour === 'boss' ? 1.3 : 1;
+    // it leads, so every fifth wave is a real wall. Its health also carries a
+    // slow boss-only growth, so the fight stays a long one at every depth.
+    const bossBoost =
+      def.behaviour === 'boss' ? 1.3 * (1 + 0.05 * wave) : 1;
     const hp = Math.max(
       1,
       Math.round(def.hp * scale.hp * bossBoost * this.difficulty.hp)
