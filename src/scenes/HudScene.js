@@ -231,7 +231,7 @@ export class HudScene extends Phaser.Scene {
     items.push(panel);
 
     const title = this.add
-      .text(cx, cy - 132 * scale, '已暂停', {
+      .text(cx, cy - 136 * scale, '已暂停', {
         fontFamily: FONT,
         fontSize: `${Math.round(24 * scale)}px`,
         color: COLORS.ink,
@@ -241,12 +241,15 @@ export class HudScene extends Phaser.Scene {
       .setDepth(12);
     items.push(title);
 
+    const run = this.scene.get('Game');
+    const cheatOn = !!(run && run.cheatMode);
+
     const btnW = panelW - 48;
-    const btnH = Math.round(46 * scale);
+    const btnH = Math.round(44 * scale);
 
     const resume = makeButton(this, {
       x: cx,
-      y: cy - 74 * scale,
+      y: cy - 96 * scale,
       width: btnW,
       height: btnH,
       icon: 'play',
@@ -259,7 +262,7 @@ export class HudScene extends Phaser.Scene {
 
     const stats = makeButton(this, {
       x: cx,
-      y: cy - 18 * scale,
+      y: cy - 40 * scale,
       width: btnW,
       height: btnH,
       icon: 'gauge',
@@ -273,7 +276,7 @@ export class HudScene extends Phaser.Scene {
 
     const restart = makeButton(this, {
       x: cx,
-      y: cy + 38 * scale,
+      y: cy + 16 * scale,
       width: btnW,
       height: btnH,
       icon: 'rotate-ccw',
@@ -287,7 +290,7 @@ export class HudScene extends Phaser.Scene {
 
     const home = makeButton(this, {
       x: cx,
-      y: cy + 94 * scale,
+      y: cy + 72 * scale,
       width: btnW,
       height: btnH,
       icon: 'chevron-left',
@@ -299,9 +302,42 @@ export class HudScene extends Phaser.Scene {
     items.push(...home.items);
     zones.push(home.zone);
 
+    // The dev switch: two tiny test buttons in the corner, off by default.
+    const cheat = makeButton(this, {
+      x: cx,
+      y: cy + 128 * scale,
+      width: btnW,
+      height: btnH,
+      icon: 'skull',
+      label: `测试按钮：${cheatOn ? '开' : '关'}`,
+      accent: cheatOn ? 0xffd166 : 0x8fa3b0,
+      depth: 12,
+      onPress: () => this.toggleCheat()
+    });
+    items.push(...cheat.items);
+    zones.push(cheat.zone);
+
     this.pauseItems = items;
     this.pauseZones = zones;
     this.applyPauseVisibility(false);
+  }
+
+  toggleCheat() {
+    const run = this.scene.get('Game');
+    if (!run || !run.toggleCheat) return;
+
+    haptic('tick');
+    run.toggleCheat();
+    this.rebuildPause();
+  }
+
+  /// Redraws only the pause sheet, so the switch can show its new state.
+  rebuildPause() {
+    for (const item of this.pauseItems) item.destroy();
+    this.pauseItems = [];
+    this.pauseZones = [];
+    this.buildPauseLayer();
+    this.applyPauseVisibility(true);
   }
 
   applyPauseVisibility(visible) {

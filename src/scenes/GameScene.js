@@ -100,6 +100,9 @@ export class GameScene extends Phaser.Scene {
     // A boss wave ends in a chest ceremony before the settlement begins.
     this.chestPhase = false;
     this.chestButton = null;
+    // The dev switch: two tiny test buttons in the corner, off by default.
+    this.cheatMode = false;
+    this.cheatItems = [];
     this.weaponChoice = null;
     this.pausedByUser = false;
     this.running = true;
@@ -269,6 +272,7 @@ export class GameScene extends Phaser.Scene {
     this.input.off('pointerdown', this.onPointerDown, this);
     this.input.off('pointerup', this.onPointerUp, this);
     this.input.off('pointerupoutside', this.onPointerUp, this);
+    this.clearCheatButtons();
     if (this.spawnTimer) {
       this.spawnTimer.remove();
       this.spawnTimer = null;
@@ -3620,6 +3624,90 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  // ------------------------------------------------------------------ cheats
+
+  /// Turns the two tiny test buttons on or off. They sit in the top-right corner,
+  /// half transparent, and only exist while a run is being tested.
+  setCheatMode(on) {
+    this.cheatMode = !!on;
+    this.clearCheatButtons();
+    if (!this.cheatMode) return;
+
+    const s = this.layout.uiScale;
+    const hud = hudGeometry(this.layout);
+    const x = this.layout.width - 24 * s;
+    const y = hud.timerY + hud.timerH + 34 * s;
+    const w = 40 * s;
+    const h = 32 * s;
+
+    const skip = makeButton(this, {
+      x,
+      y,
+      width: w,
+      height: h,
+      icon: 'chevrons-right',
+      accent: 0x8fa3b0,
+      fill: 0x05080b,
+      quiet: true,
+      depth: 24,
+      onPress: () => this.cheatSkipWave()
+    });
+
+    const kill = makeButton(this, {
+      x,
+      y: y + h + 10 * s,
+      width: w,
+      height: h,
+      icon: 'skull',
+      accent: 0x8fa3b0,
+      fill: 0x05080b,
+      quiet: true,
+      depth: 24,
+      onPress: () => this.cheatKillAll()
+    });
+
+    this.cheatItems = skip.items.concat(kill.items);
+    for (const item of this.cheatItems) item.setAlpha(0.55);
+  }
+
+  clearCheatButtons() {
+    for (const item of this.cheatItems || []) {
+      if (item && item.destroy) item.destroy();
+    }
+    this.cheatItems = [];
+  }
+
+  toggleCheat() {
+    this.setCheatMode(!this.cheatMode);
+    return this.cheatMode;
+  }
+
+  /// Ends the current wave at once, boss waves included: they hand over to the
+  /// chest ceremony exactly as a real kill would.
+  cheatSkipWave() {
+    if (!this.running || this.waveEnding) return;
+
+    haptic('tick');
+    this.endWave();
+  }
+
+  /// Wipes the screen: the boss outright, everything else through its own death
+  /// path so the drops and achievements still work.
+  cheatKillAll() {
+    if (!this.running || this.waveEnding) return;
+
+    haptic('tick');
+
+    if (this.bossFight && this.boss && this.boss.active) {
+      this.damageEnemy(this.boss, (this.boss.getData('maxHp') || 1) + 9999);
+      return;
+    }
+
+    for (const enemy of this.enemies.getChildren().slice()) {
+      if (enemy.active) this.killEnemy(enemy);
+    }
+  }
+
   endWave() {
     if (this.waveEnding) return;
     this.waveEnding = true;
@@ -5233,6 +5321,9 @@ export class GameScene extends Phaser.Scene {
 
     this.drawFlashButton();
     this.buildTopBar();
+
+    // The test buttons live on the edge of the panel, so a resize rebuilds them.
+    if (this.cheatMode) this.setCheatMode(true);
   }
 
   // ----------------------------------------------------------------- banner
