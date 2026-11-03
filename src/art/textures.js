@@ -10,6 +10,8 @@ import {
   ELITE,
   ORB,
   BOSS,
+  BOSS_RED,
+  BOSS_ORB,
   COIN,
   PELLET,
   LANCE,
@@ -42,6 +44,8 @@ import {
   CASTER_PIXELS,
   ELITE_PIXELS,
   BOSS_PIXELS,
+  BOSS_CHARGER_PIXELS,
+  BOSS_ORB_PIXELS,
   MOUSE_PIXELS,
   SPRINTER_PIXELS,
   TURRET_PIXELS,
@@ -72,6 +76,8 @@ export function buildTextures(scene) {
   renderPixelArt(scene, 'mouse', MOUSE_PIXELS, MOUSE, 2);
   renderPixelArt(scene, 'elite', ELITE_PIXELS, ELITE, 4);
   renderPixelArt(scene, 'boss', BOSS_PIXELS, BOSS, 5);
+  renderPixelArt(scene, 'boss-charger', BOSS_CHARGER_PIXELS, BOSS_RED, 5);
+  renderPixelArt(scene, 'boss-orb', BOSS_ORB_PIXELS, BOSS_ORB, 5);
   renderPixelArt(scene, 'bullet', BULLET_PIXELS, FX, 2);
   renderPixelArt(scene, 'pellet', BULLET_PIXELS, PELLET, 2);
   renderPixelArt(scene, 'lance', BULLET_PIXELS, LANCE, 2);

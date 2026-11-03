@@ -48,6 +48,7 @@ import { TEXT_RESOLUTION, sharpenText } from '../ui/text.js';
 import {
   ENEMY_TYPES,
   bossForWave,
+  recallBossForWave,
   pickEnemyType,
   waveDuration,
   waveScaling,
@@ -109,10 +110,16 @@ export class GameScene extends Phaser.Scene {
     this.waveEnding = false;
     this.bossFight = false;
     this.boss = null;
-    this.invulnUntil = 0;
+    // Invulnerability is a countdown in seconds, not a comparison against the
+    // scene clock: a stalled or jumped clock can then never park the player in
+    // permanent immunity.
+    this.invulnLeft = 0;
     this.lastHurtAt = 0;
-    this.dashUntil = 0;
     this.dashReadyAt = 0;
+    // The wave-five boss coming back as a big elite, and the lasers of the eye.
+    this.recallTimer = null;
+    this.bossLasers = [];
+    this.chargeTelegraph = null;
     this.blinkReadyAt = 0;
     this.hapticAt = 0;
     this.facing = 0;
@@ -273,6 +280,8 @@ export class GameScene extends Phaser.Scene {
     this.input.off('pointerup', this.onPointerUp, this);
     this.input.off('pointerupoutside', this.onPointerUp, this);
     this.clearCheatButtons();
+    this.clearRecalledBoss();
+    this.clearBossLasers();
     if (this.spawnTimer) {
       this.spawnTimer.remove();
       this.spawnTimer = null;
@@ -688,7 +697,7 @@ export class GameScene extends Phaser.Scene {
     this.blinkReadyAt = this.time.now + BLINK_COOLDOWN;
     // The whole flash is invulnerable: a teleport that can land you inside a
     // boss and eat a hit is not worth using.
-    this.invulnUntil = Math.max(this.invulnUntil, this.time.now + BLINK_INVULN);
+    this.invulnLeft = Math.max(this.invulnLeft, BLINK_INVULN / 1000);
 
     const ghost = this.add
       .image(fromX, fromY, this.character.texture)
@@ -923,7 +932,7 @@ export class GameScene extends Phaser.Scene {
       Math.max(0.0001, Phaser.Math.Clamp(s.hp / s.maxHp, 0, 1)),
       1
     );
-    this.hpText.setText(`${Math.ceil(s.hp)}/${s.maxHp}`);
+    this.hpText.setText(`${Math.max(0, Math.ceil(s.hp))}/${s.maxHp}`);
     this.xpFill.setScale(
       Math.max(0.0001, Phaser.Math.Clamp(s.xp / s.xpNext, 0, 1)),
       1
@@ -973,6 +982,17 @@ export class GameScene extends Phaser.Scene {
     if (this.joyPointer && !this.joyPointer.isDown) this.releaseJoystick();
 
     const dt = Math.min(delta, 48) / 1000;
+
+    // The i-frames of the last hit burn down here, a frame at a time.
+    if (this.invulnLeft > 0) this.invulnLeft = Math.max(0, this.invulnLeft - dt);
+
+    // Death is a fact, not an event belonging to one code path: whatever route
+    // the damage came by, a run that reaches zero health ends right here.
+    if (this.state.hp <= 0) {
+      this.gameOver();
+      return;
+    }
+
     this.state.runTime += dt;
 
     this.updateMovement(time, dt);
@@ -981,6 +1001,7 @@ export class GameScene extends Phaser.Scene {
     this.updatePickups(dt);
     this.updateBullets(delta);
     this.updateShots(delta);
+    this.updateBossLasers(dt);
     this.updateWave(dt);
     this.updateRegen(dt);
     this.updateItems(dt);
@@ -1052,7 +1073,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // The invulnerability flicker only touches alpha while it is actually on.
-    if (time < this.invulnUntil) {
+    if (this.invulnLeft > 0) {
       this.player.setAlpha(Math.floor(time / 90) % 2 === 0 ? 0.4 : 1);
     } else if (this.player.alpha !== 1) {
       this.player.setAlpha(1);
@@ -1404,10 +1425,15 @@ export class GameScene extends Phaser.Scene {
     if (!shot) return;
 
     shot.setDepth(6);
+    shot.setTint(0xff8f4d);
     shot.body.setCircle(8, 4, 4);
     shot.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
     shot.setData('damage', damage);
     shot.setData('age', 0);
+    // Orbs drawn from a pooled group must never inherit a previous orb's
+    // homing, or a whole ring would start chasing the player.
+    shot.setData('homing', false);
+    shot.setData('speed', speed);
   }
 
   /// The three bosses, each with its own rhythm. The charger alternates a
@@ -1416,6 +1442,10 @@ export class GameScene extends Phaser.Scene {
   updateBoss(boss, delta) {
     const now = this.time.now;
     const variant = boss.getData('variant') || 'charge';
+
+    // The charge lane is redrawn every frame while it is armed, and wiped the
+    // moment it is not.
+    if (this.chargeTelegraph) this.chargeTelegraph.clear();
 
     if (variant === 'barrage') {
       this.updateBarrageBoss(boss, delta);
@@ -1432,6 +1462,9 @@ export class GameScene extends Phaser.Scene {
 
     if (now < windupUntil) {
       boss.body.velocity.set(0, 0);
+      // 锁定: the lane points at wherever the player stood when the charge was
+      // decided, so there is a beat of warning before the lunge.
+      this.drawChargeTelegraph(boss);
       return;
     }
 
@@ -1512,10 +1545,10 @@ export class GameScene extends Phaser.Scene {
     haptic('impact');
   }
 
-  /// 弹幕之眼: it drifts at the player but never lunges, and answers with a much
-  /// denser ring than the charger ever throws.
+  /// 弹幕之眼: it drifts at the player but never lunges, and answers with a
+  /// three-beat rotation — sweeping beams, then a spiral of homing orbs, then a
+  /// ring — so the only way through is to keep circling it.
   updateBarrageBoss(boss, delta) {
-    const now = this.time.now;
     const angle = Math.atan2(this.player.y - boss.y, this.player.x - boss.x);
     const speed = boss.getData('speed') || 44;
     boss.body.velocity.set(Math.cos(angle) * speed, Math.sin(angle) * speed);
@@ -1524,16 +1557,199 @@ export class GameScene extends Phaser.Scene {
     boss.setData('actionTimer', timer);
     if (timer > 0) return;
 
-    boss.setData('actionTimer', 1050);
+    const step = ((boss.getData('step') || 0) + 1) % 3;
+    boss.setData('step', step);
 
-    boss.setTint(0xc8fff4);
+    boss.setTint(0xd9c3ff);
     const sprite = boss;
     this.time.delayedCall(200, () => {
       if (sprite.active) sprite.clearTint();
     });
+
+    if (step === 0) {
+      boss.setData('actionTimer', 2500);
+      this.bossLaser(boss);
+      return;
+    }
+
+    if (step === 1) {
+      boss.setData('actionTimer', 1800);
+      this.bossSpiral(boss);
+      return;
+    }
+
+    boss.setData('actionTimer', 1600);
     this.time.delayedCall(240, () => {
-      if (sprite.active && this.running) this.bossBarrage(sprite, 24, 210);
+      if (sprite.active && this.running) this.bossBarrage(sprite, 16, 180);
     });
+  }
+
+  /// 弹幕之眼's spiral: slow homing orbs fanned off-axis, curving in. They can be
+  /// outrun, but only by moving, so standing still stops being a plan.
+  bossSpiral(boss) {
+    const count = 5;
+    const speed = 138;
+    const base = Phaser.Math.Angle.Between(
+      boss.x,
+      boss.y,
+      this.player.x,
+      this.player.y
+    );
+    const drift = (boss.getData('spiralDrift') || 0) + 0.5;
+    boss.setData('spiralDrift', drift);
+
+    for (let i = 0; i < count; i++) {
+      const a = base + drift + (i - (count - 1) / 2) * 0.46;
+      this.spawnHomingOrb(
+        boss.x,
+        boss.y,
+        a,
+        speed,
+        boss.getData('shotDamage') || 7,
+        2.1
+      );
+    }
+
+    const color = boss.getData('bossColor') || 0xb07bff;
+    const flash = this.add.circle(boss.x, boss.y, 22, color, 0.45).setDepth(4);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      scale: 2.4,
+      duration: 380,
+      onComplete: () => flash.destroy()
+    });
+    haptic('charge');
+  }
+
+  /// One orb that bends towards the player as it flies: fast enough to be a
+  /// threat, slow enough to be outrun, so the player has to keep moving.
+  spawnHomingOrb(x, y, angle, speed, damage, turn) {
+    const shot = this.enemyShots.create(
+      x + Math.cos(angle) * 18,
+      y + Math.sin(angle) * 18,
+      'orb'
+    );
+    if (!shot) return;
+
+    shot.setDepth(6);
+    shot.setTint(0xc98bff);
+    shot.body.setCircle(8, 4, 4);
+    shot.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
+    shot.setData('damage', damage);
+    shot.setData('age', 0);
+    shot.setData('homing', true);
+    shot.setData('turn', turn || 2);
+    shot.setData('speed', speed);
+  }
+
+  /// Two beams pinned to the eye, sweeping round the arena while it drifts. The
+  /// only safe place is behind them.
+  bossLaser(boss) {
+    const angle = Phaser.Math.Angle.Between(
+      boss.x,
+      boss.y,
+      this.player.x,
+      this.player.y
+    );
+
+    this.bossLasers = this.bossLasers || [];
+    this.bossLasers.push({
+      boss,
+      gfx: this.add.graphics().setDepth(6),
+      angle,
+      spin: 1.15,
+      until: this.time.now + 2000,
+      nextHitAt: 0,
+      damage: boss.getData('shotDamage') || 7
+    });
+
+    haptic('charge');
+    Sfx.zap();
+  }
+
+  updateBossLasers(dt) {
+    if (!this.bossLasers || this.bossLasers.length === 0) return;
+
+    const now = this.time.now;
+    const width = 16;
+
+    for (let i = this.bossLasers.length - 1; i >= 0; i--) {
+      const laser = this.bossLasers[i];
+      const boss = laser.boss;
+
+      if (!boss || !boss.active || !this.running || now > laser.until) {
+        laser.gfx.destroy();
+        this.bossLasers.splice(i, 1);
+        continue;
+      }
+
+      laser.angle += laser.spin * dt;
+
+      const g = laser.gfx;
+      g.clear();
+
+      for (let beam = 0; beam < 2; beam++) {
+        const a = laser.angle + beam * Math.PI;
+        const ex = boss.x + Math.cos(a) * 900;
+        const ey = boss.y + Math.sin(a) * 900;
+
+        g.lineStyle(18, 0x8b3fd0, 0.14);
+        g.lineBetween(boss.x, boss.y, ex, ey);
+        g.lineStyle(6, 0xc98bff, 0.42);
+        g.lineBetween(boss.x, boss.y, ex, ey);
+        g.lineStyle(2, 0xf6e6ff, 0.85);
+        g.lineBetween(boss.x, boss.y, ex, ey);
+
+        // Only a player standing in the beam's lane is caught by it.
+        const dx = this.player.x - boss.x;
+        const dy = this.player.y - boss.y;
+        const along = dx * Math.cos(a) + dy * Math.sin(a);
+        const across = Math.abs(-dx * Math.sin(a) + dy * Math.cos(a));
+
+        if (
+          along > 0 &&
+          across < width &&
+          now >= laser.nextHitAt &&
+          this.invulnLeft <= 0
+        ) {
+          laser.nextHitAt = now + 420;
+          this.hurt(laser.damage);
+        }
+      }
+    }
+  }
+
+  clearBossLasers() {
+    for (const laser of this.bossLasers || []) {
+      if (laser.gfx) laser.gfx.destroy();
+    }
+    this.bossLasers = [];
+  }
+
+  /// The lane the charge will take, drawn from the moment the charge is
+  /// telegraphed until it fires.
+  drawChargeTelegraph(boss) {
+    if (!this.chargeTelegraph) {
+      this.chargeTelegraph = this.add.graphics().setDepth(5);
+    }
+
+    const g = this.chargeTelegraph;
+    const angle = boss.getData('chargeAngle') || 0;
+    const len = 560;
+    const ex = boss.x + Math.cos(angle) * len;
+    const ey = boss.y + Math.sin(angle) * len;
+
+    g.lineStyle(14, 0xff3d6e, 0.12);
+    g.lineBetween(boss.x, boss.y, ex, ey);
+    g.lineStyle(3, 0xff3d6e, 0.45);
+    g.lineBetween(boss.x, boss.y, ex, ey);
+
+    // A crosshair at the far end of the lane.
+    g.lineStyle(2, 0xffd166, 0.5);
+    g.strokeCircle(ex, ey, 16);
+    g.lineBetween(ex - 22, ey, ex - 8, ey);
+    g.lineBetween(ex + 8, ey, ex + 22, ey);
   }
 
   /// 召唤祭司: a slow chase, a thin ring, and every few seconds two of the wave's
@@ -1605,10 +1821,9 @@ export class GameScene extends Phaser.Scene {
     const shot = a === this.player ? b : a;
     if (!this.running || !shot || shot === this.player || !shot.active) return;
 
-    const now = this.time.now;
     // Dashing carries the player clean through enemy fire, and the hurt
     // recovery window does the same: neither one takes the hit.
-    if (now < this.dashUntil || now < this.invulnUntil) return;
+    if (this.invulnLeft > 0) return;
 
     // 极限闪避: on the move, the phantom slips a tenth of all incoming fire.
     if (
@@ -1637,6 +1852,31 @@ export class GameScene extends Phaser.Scene {
       if (!shot.active) continue;
       const age = (shot.getData('age') || 0) + delta;
       shot.setData('age', age);
+
+      // 追踪弹: the orb bends towards the player, but only at a fixed turn rate,
+      // so running sideways beats it and standing still does not.
+      if (shot.getData('homing') && shot.body && shot.body.velocity) {
+        const desired = Math.atan2(
+          this.player.y - shot.y,
+          this.player.x - shot.x
+        );
+        const current = Math.atan2(shot.body.velocity.y, shot.body.velocity.x);
+        let diff = desired - current;
+
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+
+        const turn = shot.getData('turn') || 2;
+        const speed = shot.getData('speed') || 140;
+        const reach = turn * (delta / 1000);
+        const step = Phaser.Math.Clamp(diff, -reach, reach);
+        const heading = current + step;
+
+        shot.setVelocity(
+          Math.cos(heading) * speed,
+          Math.sin(heading) * speed
+        );
+      }
 
       if (
         age > 5000 ||
@@ -1827,8 +2067,7 @@ export class GameScene extends Phaser.Scene {
     if (!owned) return;
 
     if (owned.frog) {
-      const moving =
-        this.joyDir.lengthSq() > 0.01 || this.time.now < this.dashUntil;
+      const moving = this.joyDir.lengthSq() > 0.01;
       if (moving) this.frogCharge += dt;
 
       if (this.frogCharge >= frogInterval(owned.frog)) {
@@ -2991,9 +3230,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.running || !enemy || enemy === this.player || !enemy.active)
       return;
 
-    const now = this.time.now;
-    if (now < this.dashUntil) return;
-    if (now < this.invulnUntil) return;
+    if (this.invulnLeft > 0) return;
 
     // A hit that goes wrong must never take the whole run down with it: an
     // exception thrown inside a physics callback stops the game loop dead.
@@ -3295,44 +3532,60 @@ export class GameScene extends Phaser.Scene {
 
     const s = this.state;
 
-    // 残影步: a share of hits simply misses.
+    // 残影步: a share of hits simply misses. The stat is capped in
+    // clampPlayerStats, so a stack of cards can never add up to immunity.
     if (s.dodge > 0 && Math.random() < s.dodge) {
-      this.invulnUntil = this.time.now + 320;
+      this.invulnLeft = 0.32;
       this.notify('闪避', this.player.x, this.player.y);
       Sfx.click();
       return;
     }
 
-    // 幻影 pays for its crits with twice the sting.
+    // 幻影 pays for its crits with twice the sting. Damage always bites: even a
+    // nearly full armour bar leaves a fifth of the hit, so nobody can sit at one
+    // health forever.
+    const armour = Math.min(0.8, Math.max(0, s.armor || 0));
     const taken =
-      amount * (1 - (s.armor || 0)) * (this.damageTakenMult || 1);
+      Math.max(0.01, amount) * (1 - armour) * (this.damageTakenMult || 1);
+
     s.hp = Math.max(0, s.hp - taken);
+    // A broken number is a death sentence the wrong way round: never let a bad
+    // stat leave the bar sitting on a value that is neither alive nor dead.
+    if (!Number.isFinite(s.hp)) s.hp = 0;
+    const dead = s.hp <= 0;
+
     this.lastHurtAt = this.time.now;
-    this.invulnUntil = this.time.now + 600;
+    this.invulnLeft = 0.6;
 
-    this.cameras.main.shake(140, 0.007);
-    this.player.setTint(0xff8899);
-    const player = this.player;
-    this.time.delayedCall(140, () => {
-      if (!player.active) return;
+    // Everything below is presentation. It is kept away from the death check so
+    // a cosmetic failure can never swallow it.
+    try {
+      this.cameras.main.shake(140, 0.007);
+      this.player.setTint(0xff8899);
+      const player = this.player;
+      this.time.delayedCall(140, () => {
+        if (!player.active) return;
 
-      player.clearTint();
-      if (this.skinTint) player.setTint(this.skinTint);
-    });
+        player.clearTint();
+        if (this.skinTint) player.setTint(this.skinTint);
+      });
 
-    this.spawnBurst(this.player.x, this.player.y, COLORS.danger, 6);
-    haptic('hurt');
-    Sfx.hurt();
+      this.spawnBurst(this.player.x, this.player.y, COLORS.danger, 6);
+      haptic('hurt');
+      Sfx.hurt();
 
-    // 反伤重甲: whatever lands on the tank is thrown back at everything near it.
-    if (this.character.skill && this.character.skill.key === 'thorns') {
-      this.thornsBurst();
+      // 反伤重甲: whatever lands on the tank is thrown back at everything near it.
+      if (this.character.skill && this.character.skill.key === 'thorns') {
+        this.thornsBurst();
+      }
+
+      // 荆棘刺甲: the same, but across the whole screen and in full.
+      if (s.thorncoat) this.thornCoatBurst(taken);
+    } catch (error) {
+      console.warn('Hurt effect failed:', error);
     }
 
-    // 荆棘刺甲: the same, but across the whole screen and in full.
-    if (s.thorncoat) this.thornCoatBurst(taken);
-
-    if (s.hp <= 0) this.gameOver();
+    if (dead) this.gameOver();
   }
 
   // ----------------------------------------------------------------- waves
@@ -3392,6 +3645,24 @@ export class GameScene extends Phaser.Scene {
     if (this.spawnTimer) {
       this.spawnTimer.remove();
       this.spawnTimer = null;
+    }
+
+    // 首领返场: the first boss sometimes crawls back out of the floor as a big
+    // elite during the quiet stretch between the first and the second boss. On
+    // the second boss wave it joins in alongside the real thing, less often.
+    this.clearRecalledBoss();
+    const recalled = recallBossForWave(wave);
+    const recallChance = isBossWave(wave) ? 0.35 : 0.6;
+    if (recalled && Math.random() < recallChance) {
+      const span = isBossWave(wave)
+        ? 12000
+        : Math.max(4000, (waveDuration(wave) - 10) * 1000);
+      const at = Phaser.Math.Between(3000, span);
+      this.recallTimer = this.time.delayedCall(at, () => {
+        this.recallTimer = null;
+        if (!this.running || this.waveEnding || this.state.wave !== wave) return;
+        this.spawnRecalledBoss(recalled);
+      });
     }
 
     // 固定炮塔 sets up shop for the whole wave, boss waves included.
@@ -3712,6 +3983,10 @@ export class GameScene extends Phaser.Scene {
     if (this.waveEnding) return;
     this.waveEnding = true;
 
+    this.clearRecalledBoss();
+    this.clearBossLasers();
+    if (this.chargeTelegraph) this.chargeTelegraph.clear();
+
     if (this.spawnTimer) {
       this.spawnTimer.remove();
       this.spawnTimer = null;
@@ -3934,15 +4209,58 @@ export class GameScene extends Phaser.Scene {
     if (!boss) return;
 
     this.boss = boss;
+    this.clearBossLasers();
     boss.setCollideWorldBounds(true);
     boss.setData('actionTimer', 1400);
     boss.setData('summonAt', this.time.now + 4200);
+    boss.setData('step', 0);
     boss.setData('variant', def.variant);
     boss.setData('bossName', def.name);
     boss.setData('bossColor', def.color);
     this.spawnBurst(boss.x, boss.y, def.color, 16);
     haptic('impact');
     Sfx.boss();
+  }
+
+  /// 首领返场: the wave-five brute clawing its way back out as a big elite. It
+  /// uses the ordinary chase AI, so it never touches the boss bar, the boss
+  /// phase or the boss ceremony — it is just a very large, very rich monster.
+  spawnRecalledBoss(def) {
+    const field = this.layout.field;
+    const edge = Phaser.Math.Between(0, 3);
+
+    let x;
+    let y;
+
+    if (edge === 0) {
+      x = Phaser.Math.Between(40, field.width - 40);
+      y = this.safeTop + 40;
+    } else if (edge === 1) {
+      x = field.width - 40;
+      y = Phaser.Math.Between(this.safeTop + 40, field.height - 40);
+    } else if (edge === 2) {
+      x = Phaser.Math.Between(40, field.width - 40);
+      y = field.height - 40;
+    } else {
+      x = 40;
+      y = Phaser.Math.Between(this.safeTop + 40, field.height - 40);
+    }
+
+    const boss = this.makeEnemy(def, x, y);
+    if (!boss) return;
+
+    this.spawnBurst(x, y, def.color, 18);
+    this.notify('首领返场', x, y - 30);
+    this.banner('首领返场', `${def.name} 又爬起来了`);
+    haptic('charge');
+    Sfx.boss();
+  }
+
+  clearRecalledBoss() {
+    if (this.recallTimer) {
+      this.recallTimer.remove();
+      this.recallTimer = null;
+    }
   }
 
   makeEnemy(def, x, y) {
@@ -3969,10 +4287,11 @@ export class GameScene extends Phaser.Scene {
     const scale = waveScaling(wave);
 
     // The boss is a checkpoint rather than one more body: it outgrows the horde
-    // it leads, so every fifth wave is a real wall. Its health also carries a
-    // slow boss-only growth, so the fight stays a long one at every depth.
+    // it leads, so every fifth wave is a real wall. Its health is tuned so the
+    // fight lands at about thirty to forty seconds of the run's own damage,
+    // however deep the run has gone.
     const bossBoost =
-      def.behaviour === 'boss' ? 1.3 * (1 + 0.05 * wave) : 1;
+      def.behaviour === 'boss' ? 1.2 * (1 + 0.04 * wave) : 1;
     const hp = Math.max(
       1,
       Math.round(def.hp * scale.hp * bossBoost * this.difficulty.hp)
@@ -4037,12 +4356,15 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    // Spawn-in: scale only, so the physics circle never changes size.
-    enemy.setScale(0.2);
+    // Spawn-in: scale only, so the physics circle never changes size. The def's
+    // own scale is the resting size, which is how a recalled boss stays visibly
+    // smaller than the real thing.
+    const restScale = def.scale || 1;
+    enemy.setScale(0.2 * restScale);
     enemy.setAlpha(0.4);
     this.tweens.add({
       targets: enemy,
-      scale: 1,
+      scale: restScale,
       alpha: 1,
       duration: 220,
       ease: 'Back.out'
@@ -4281,6 +4603,7 @@ export class GameScene extends Phaser.Scene {
     s.speed = Math.min(base.speed * 2.2, s.speed);
     s.critChance = Math.min(0.75, s.critChance);
     s.armor = Math.min(0.6, s.armor);
+    s.dodge = Math.min(0.5, s.dodge || 0);
     s.lifesteal = Math.min(0.2, s.lifesteal);
     s.projectiles = Math.min(5, s.projectiles);
   }

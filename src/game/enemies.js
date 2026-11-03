@@ -140,52 +140,53 @@ export const ENEMY_TYPES = {
   }
 };
 
-// The three bosses take turns, one every fifth wave. They share the boss sprite
-// but nothing else: each has its own colour, size and rhythm, so a boss wave
-// always asks a different question. `scale` shrinks the whole body and hitbox.
+// The three bosses take turns, one every fifth wave. They share nothing: each
+// has its own drawn body, colour, size and rhythm, so a boss wave always asks a
+// different question. Health lands the fight at roughly thirty to forty seconds
+// once the run's own damage is counted in.
 export const BOSS_TYPES = [
   {
     key: 'charger',
     name: '冲撞巨兽',
     variant: 'charge',
-    texture: 'boss',
-    hp: 1500,
+    texture: 'boss-charger',
+    hp: 1150,
     speed: 62,
-    damage: 8,
+    damage: 7,
     radius: 40,
     offset: 20,
-    scale: 1.08,
+    scale: 1,
     xp: 6,
     gems: 8,
-    coins: 12,
+    coins: 14,
     coinChance: 1,
     weaponChance: 1,
     color: 0xff3d6e,
     behaviour: 'boss',
-    aura: 196,
+    aura: 180,
     auraColor: 0xff3d6e,
     shotDamage: 5
   },
   {
     key: 'ring',
     name: '弹幕之眼',
+    texture: 'boss-orb',
     variant: 'barrage',
-    texture: 'boss',
-    hp: 1350,
+    hp: 1050,
     speed: 44,
     damage: 7,
     radius: 40,
     offset: 20,
-    scale: 0.86,
+    scale: 1,
     xp: 7,
     gems: 8,
-    coins: 12,
+    coins: 14,
     coinChance: 1,
     weaponChance: 1,
-    color: 0x63ffe0,
+    color: 0xb07bff,
     behaviour: 'boss',
     aura: 168,
-    auraColor: 0x63ffe0,
+    auraColor: 0xb07bff,
     shotDamage: 5
   },
   {
@@ -193,21 +194,21 @@ export const BOSS_TYPES = [
     name: '召唤祭司',
     variant: 'summon',
     texture: 'boss',
-    hp: 1650,
+    hp: 1250,
     speed: 48,
-    damage: 8,
+    damage: 7,
     radius: 40,
     offset: 20,
-    scale: 0.96,
+    scale: 1,
     xp: 8,
     gems: 9,
-    coins: 14,
+    coins: 15,
     coinChance: 1,
     weaponChance: 1,
-    color: 0xb07bff,
+    color: 0x63ffe0,
     behaviour: 'boss',
     aura: 176,
-    auraColor: 0xb07bff,
+    auraColor: 0x63ffe0,
     shotDamage: 4
   }
 ];
@@ -218,6 +219,35 @@ export function bossForWave(wave) {
   const w = Math.max(1, wave);
   const index = (Math.ceil(w / 5) - 1) % BOSS_TYPES.length;
   return BOSS_TYPES[Math.max(0, index)];
+}
+
+/// 首领返场: in the stretch between the first boss and the second, the wave-five
+/// brute sometimes crawls back out of the floor as a big elite — smaller than a
+/// real boss, tougher than the rank and file, and worth a fat purse of coins.
+export function recallBossForWave(wave) {
+  if (wave < 6 || wave > 10) return null;
+
+  const source = BOSS_TYPES[0];
+  return {
+    key: 'recall-charger',
+    name: '冲撞巨兽·残影',
+    texture: 'boss-charger',
+    hp: 260,
+    speed: 78,
+    damage: 6,
+    radius: 26,
+    offset: 34,
+    scale: 0.62,
+    xp: 6,
+    gems: 3,
+    coins: 9,
+    coinChance: 1,
+    weaponChance: 0.3,
+    color: source.color,
+    behaviour: 'chase',
+    aura: 118,
+    auraColor: source.color
+  };
 }
 
 /// Every fifth wave is a boss wave: no spawns, no clock, one huge enemy.

@@ -65,6 +65,29 @@ export const BOSS = [
   0xffd166 // 6 golden eye
 ];
 
+// 冲撞巨兽: a dark red polygon with hot orange edges and one golden slit for an
+// eye, so it never reads as a scaled-up grunt.
+export const BOSS_RED = [
+  null,
+  0x1c0709, // 1 outline
+  0x4d0f18, // 2 deep red
+  0x8f1e2b, // 3 red hide
+  0xd93a34, // 4 bright plate
+  0xff8f4d, // 5 hot edge
+  0xffe27a // 6 golden eye
+];
+
+// 弹幕之眼: a purple orb ringed in lavender light, with the same golden eye.
+export const BOSS_ORB = [
+  null,
+  0x140a20, // 1 outline
+  0x2e0f4a, // 2 deep purple
+  0x5b1f8f, // 3 purple body
+  0x8b3fd0, // 4 light body
+  0xc98bff, // 5 halo rim
+  0xffe27a // 6 golden eye
+];
+
 // Coins: the shop currency, warm gold so it never reads as a shard.
 export const COIN = [
   null,
