@@ -21,7 +21,7 @@ import {
   refreshDiscount,
   shopDiscount
 } from '../game/passives.js';
-import { Sfx, setMusicTrack, duckMusic } from '../game/audio.js';
+import { Sfx, setMusicTrack, duckMusic, panFor } from '../game/audio.js';
 import { xpForLevel, coinBudgetForWave } from '../game/loot.js';
 import { rarityColor, rarityFor } from '../game/rarities.js';
 import { nextRarity, mergeCost, rollChestRarity, weaponLevel, weaponName } from '../game/rarities.js';
@@ -1205,7 +1205,7 @@ export class GameScene extends Phaser.Scene {
       bullet.setData('age', 0);
     }
 
-    Sfx.shoot();
+    Sfx.shoot(stats.def.style, panFor(this.player.x, this.layout.width));
 
     const flash = this.add
       .circle(
@@ -1260,7 +1260,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    Sfx.shoot();
+    Sfx.shoot('explosive', panFor(this.player.x, this.layout.width));
   }
 
   explodePlane(plane, stats) {
@@ -1287,7 +1287,7 @@ export class GameScene extends Phaser.Scene {
       this.damageEnemy(enemy, stats.damage);
     }
 
-    Sfx.mine();
+    Sfx.mine(panFor(x, this.layout.width));
     this.hapticOnce('impact', 120);
     this.cameras.main.shake(80, 0.003);
   }
@@ -1949,12 +1949,12 @@ export class GameScene extends Phaser.Scene {
 
     if (kind === 'coin') {
       this.addCoins(value);
-      Sfx.coin();
+      Sfx.coin(panFor(pickup.x, this.layout.width));
     } else if (kind === 'heart') {
       this.healNow(value);
     } else {
       this.addXp(value);
-      Sfx.gem();
+      Sfx.gem(panFor(pickup.x, this.layout.width));
     }
 
     pickup.destroy();
@@ -2264,7 +2264,7 @@ export class GameScene extends Phaser.Scene {
       enemy.setData('slowUntil', this.time.now + 650);
     }
 
-    Sfx.hit();
+    Sfx.clang(panFor(this.player.x, this.layout.width));
     this.hapticOnce('impact', 120);
   }
 
@@ -2481,7 +2481,7 @@ export class GameScene extends Phaser.Scene {
       hit: new Set()
     });
 
-    Sfx.shoot();
+    Sfx.shoot('blade', panFor(this.player.x, this.layout.width));
   }
 
   updateBoomerangs(delta) {
@@ -2855,7 +2855,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.damageEnemy(target, this.state.damage * 0.45);
-    Sfx.hit();
+    Sfx.hit(panFor(target.x, this.layout.width));
   }
 
   /// Two identical guns at the same rarity pulse in the weapon bar, so the
@@ -3208,9 +3208,9 @@ export class GameScene extends Phaser.Scene {
         const d = Phaser.Math.Distance.Between(enemy.x, enemy.y, other.x, other.y);
         if (d <= splash) this.damageEnemy(other, damage * 0.6);
       }
-      Sfx.mine();
+      Sfx.mine(panFor(enemy.x, this.layout.width));
     } else {
-      Sfx.hit();
+      Sfx.hit(panFor(enemy.x, this.layout.width));
     }
 
     const pierce = bullet.getData('pierce') || 0;
@@ -3324,7 +3324,7 @@ export class GameScene extends Phaser.Scene {
     // back round and kill this corpse a second time.
     this.kill(enemy);
     this.hapticOnce('enemy_death', 90);
-    Sfx.kill();
+    Sfx.kill(panFor(enemy.x, this.layout.width));
 
     // 连锁反应: the corpse goes off and takes a bite out of the crowd.
     if (this.state.chainKill > 0) {
@@ -3572,7 +3572,7 @@ export class GameScene extends Phaser.Scene {
 
       this.spawnBurst(this.player.x, this.player.y, COLORS.danger, 6);
       haptic('hurt');
-      Sfx.hurt();
+      Sfx.hurt(panFor(this.player.x, this.layout.width));
 
       // 反伤重甲: whatever lands on the tank is thrown back at everything near it.
       if (this.character.skill && this.character.skill.key === 'thorns') {

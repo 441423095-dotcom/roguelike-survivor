@@ -9,6 +9,7 @@ import { haptic } from '../haptics.js';
 import { applyCameraZoom, viewSize } from '../ui/view.js';
 import { DIFFICULTIES } from '../game/difficulty.js';
 import { loadProgress, selectDifficulty } from '../game/progress.js';
+import { startMusic } from '../game/audio.js';
 
 export class DifficultyScene extends Phaser.Scene {
   constructor() {
@@ -17,6 +18,7 @@ export class DifficultyScene extends Phaser.Scene {
 
   create() {
     applyCameraZoom(this);
+    startMusic(this, 'menu');
     this.build();
 
     this.scale.on('resize', this.onResize, this);

@@ -7,7 +7,7 @@ import { makeButton } from '../ui/widgets.js';
 import { TEXT_RESOLUTION, sharpenText } from '../ui/text.js';
 import { haptic } from '../haptics.js';
 import { DPR, applyCameraZoom, viewSize } from '../ui/view.js';
-import { Sfx } from '../game/audio.js';
+import { Sfx, startMusic } from '../game/audio.js';
 import {
   loadMeta,
   META_PERKS,
@@ -32,6 +32,7 @@ export class MetaShopScene extends Phaser.Scene {
 
   create() {
     applyCameraZoom(this);
+    startMusic(this, 'menu');
     this.scrollY = 0;
     this.maxScroll = 0;
     this.dragging = false;

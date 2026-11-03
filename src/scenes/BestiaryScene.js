@@ -9,6 +9,7 @@ import { TEXT_RESOLUTION, sharpenText } from '../ui/text.js';
 import { haptic } from '../haptics.js';
 import { DPR, applyCameraZoom, viewSize } from '../ui/view.js';
 import { bestiaryState } from '../game/bestiary.js';
+import { startMusic } from '../game/audio.js';
 
 export class BestiaryScene extends Phaser.Scene {
   constructor() {
@@ -17,6 +18,7 @@ export class BestiaryScene extends Phaser.Scene {
 
   create() {
     applyCameraZoom(this);
+    startMusic(this, 'menu');
     this.scrollY = 0;
     this.maxScroll = 0;
     this.expanded = null;

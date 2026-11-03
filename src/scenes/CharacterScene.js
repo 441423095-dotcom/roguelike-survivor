@@ -11,6 +11,7 @@ import { haptic } from '../haptics.js';
 import { CHARACTERS, getCharacter } from '../game/characters.js';
 import { loadProgress, isUnlocked, selectCharacter } from '../game/progress.js';
 import { metaCharacterUnlocked } from '../game/meta.js';
+import { startMusic } from '../game/audio.js';
 
 /// A numeric colour as a CSS string, for text.
 function hexOf(color) {
@@ -32,6 +33,7 @@ export class CharacterScene extends Phaser.Scene {
 
   create() {
     applyCameraZoom(this);
+    startMusic(this, 'menu');
     const progress = loadProgress();
     const saved = getCharacter(progress.character);
     if (!isUnlocked(progress, saved) && !metaCharacterUnlocked(saved.key)) {

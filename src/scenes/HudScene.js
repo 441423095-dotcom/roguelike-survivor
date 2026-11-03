@@ -178,9 +178,12 @@ export class HudScene extends Phaser.Scene {
     this.dangerLevel = level;
 
     if (level === 1) {
-      // Under a third health: a faint, steady glow.
+      // Under a third health: a faint, steady glow, and the heart starts to be
+      // heard. It creeps up in weight and rate as the bar keeps falling, so the
+      // warning arrives before the countdown does.
       g.setAlpha(0.5 + 0.45 * flare);
-      this.nextBeat = 0;
+      const severity = Math.max(0, Math.min(1, (0.3 - ratio) / 0.15));
+      this.maybeBeat(now, 1250 - 200 * severity, 0.45 + 0.5 * severity);
       return;
     }
 
@@ -188,10 +191,8 @@ export class HudScene extends Phaser.Scene {
     const beat = 0.5 + 0.5 * Math.sin(now / 260);
     g.setAlpha(Math.min(1, 0.62 + 0.38 * beat + 0.45 * flare));
 
-    if (now > this.nextBeat) {
-      this.nextBeat = now + 900;
-      Sfx.heartbeat();
-    }
+    // The closer to zero, the faster and heavier the pulse gets.
+    this.maybeBeat(now, 620 + 260 * (ratio / 0.15), 1);
 
     // A very slight tremble, just enough to be felt behind the pulse.
     const game = this.scene.get('Game');
@@ -199,6 +200,15 @@ export class HudScene extends Phaser.Scene {
       this.nextShiver = now + 1800;
       game.cameras.main.shake(90, 0.0016);
     }
+  }
+
+  /// One heartbeat, at a rate and weight that match how close the run is to
+  /// ending. The timer lives on the HUD scene, which keeps ticking while the
+  /// run is frozen for a shop.
+  maybeBeat(now, gap, power) {
+    if (now < (this.nextBeat || 0)) return;
+    this.nextBeat = now + gap;
+    Sfx.heartbeat(power);
   }
 
   buildPauseLayer() {

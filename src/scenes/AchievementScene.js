@@ -9,7 +9,7 @@ import { haptic } from '../haptics.js';
 import { DPR, applyCameraZoom, viewSize } from '../ui/view.js';
 import { achievementState, claimReward } from '../game/achievements.js';
 import { addShards } from '../game/meta.js';
-import { Sfx } from '../game/audio.js';
+import { Sfx, startMusic } from '../game/audio.js';
 
 export class AchievementScene extends Phaser.Scene {
   constructor() {
@@ -18,6 +18,7 @@ export class AchievementScene extends Phaser.Scene {
 
   create() {
     applyCameraZoom(this);
+    startMusic(this, 'menu');
     this.scrollY = 0;
     this.maxScroll = 0;
     this.dragging = false;
