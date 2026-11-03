@@ -16,6 +16,8 @@ import {
   PELLET,
   LANCE,
   CRATE,
+  LOOTBOX,
+  LOOT_RING,
   IRON,
   SPARK,
   GALE,
@@ -54,6 +56,8 @@ import {
   ORB_PIXELS,
   COIN_PIXELS,
   CRATE_PIXELS,
+  LOOTBOX_PIXELS,
+  LOOT_RING_PIXELS,
   GUN_PIXELS,
   buildFloorPixels
 } from './sprites.js';
@@ -93,6 +97,8 @@ export function buildTextures(scene) {
   renderPixelArt(scene, 'gem', GEM_PIXELS, FX, 2);
   renderPixelArt(scene, 'coin', COIN_PIXELS, COIN, 2);
   renderPixelArt(scene, 'crate', CRATE_PIXELS, CRATE, 3);
+  renderPixelArt(scene, 'lootbox', LOOTBOX_PIXELS, LOOTBOX, 4);
+  renderPixelArt(scene, 'loot-ring', LOOT_RING_PIXELS, LOOT_RING, 4);
   renderPixelArt(scene, 'floor', buildFloorPixels(), FLOOR, 2);
   renderPixelArt(scene, 'gun', GUN_PIXELS, IRON, 3);
 }

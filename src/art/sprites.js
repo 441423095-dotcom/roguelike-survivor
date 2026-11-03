@@ -428,3 +428,42 @@ export const GUN_PIXELS = [
   '0001122211000',
   '0000011000000'
 ];
+
+
+// 数据盲盒: a squat wooden box with a gold lid band, gold trim and a small cyan
+// lock. Fourteen pixels square, drawn to sit on the floor and be walked onto.
+export const LOOTBOX_PIXELS = sym(
+  '0000000',
+  '0011110',
+  '0155551',
+  '1566651',
+  '1333331',
+  '1344431',
+  '1555551',
+  '1555551',
+  '1333331',
+  '1333377',
+  '1333377',
+  '1344431',
+  '0111110',
+  '0000000'
+);
+
+// The ring a blind box throws out when it pops: a hollow pixel circle, tinted
+// gold or cyan in the scene and scaled up as it fades.
+export const LOOT_RING_PIXELS = sym(
+  '0000055',
+  '0000550',
+  '0005500',
+  '0055000',
+  '0055000',
+  '0550000',
+  '0550000',
+  '0550000',
+  '0550000',
+  '0550000',
+  '0055000',
+  '0005500',
+  '0000550',
+  '0000055'
+);

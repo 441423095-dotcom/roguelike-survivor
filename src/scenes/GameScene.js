@@ -1908,7 +1908,7 @@ export class GameScene extends Phaser.Scene {
       const dy = py - pickup.y;
       const dist = Math.hypot(dx, dy) || 1;
 
-      if (dist < radius) {
+      if (dist < radius && pickup.getData('kind') !== 'chest') {
         const pull = Phaser.Math.Clamp(1 - dist / radius, 0.2, 1);
         const speed = 170 + 430 * pull;
         pickup.x += (dx / dist) * speed * dt;
@@ -1935,11 +1935,8 @@ export class GameScene extends Phaser.Scene {
     const glow = pickup.getData('glow');
     if (glow) glow.destroy();
 
-    const beam = pickup.getData('beam');
-    if (beam) beam.destroy();
-
-    const core = pickup.getData('core');
-    if (core) core.destroy();
+    const frame = pickup.getData('frame');
+    if (frame) frame.destroy();
 
     if (kind === 'chest') {
       this.openChest(pickup);
@@ -3737,8 +3734,9 @@ export class GameScene extends Phaser.Scene {
     this.makeEnemy(def, x, y);
   }
 
-  /// 赛博宝箱: the reward a boss wave leaves behind. A light column marks it and
-  /// it waits on the floor until the player walks over it.
+  /// 数据盲盒: the reward a boss wave leaves behind. A small pixel box that
+  /// hovers just off the floor inside a blinking frame, and waits to be walked
+  /// onto. No light column: all the glow belongs to the box itself.
   spawnChest(x, y) {
     const field = this.layout.field;
     const cx = x === undefined ? field.centerX : x;
@@ -3750,58 +3748,54 @@ export class GameScene extends Phaser.Scene {
           )
         : y;
 
-    // The light pillar, so it can be found from anywhere on screen.
-    const beam = this.add
-      .rectangle(cx, field.height / 2, 46, field.height, 0xffd166, 0.08)
-      .setDepth(1);
-    const core = this.add
-      .rectangle(cx, field.height / 2, 14, field.height, 0xfff3c4, 0.13)
-      .setDepth(1);
+    const glow = this.add.circle(cx, cy + 8, 30, 0xffd166, 0.16).setDepth(2);
 
+    const box = this.add.image(cx, cy, 'lootbox').setDepth(4);
+
+    const frame = this.add
+      .rectangle(cx, cy, 66, 62, 0x000000, 0)
+      .setStrokeStyle(2, 0xffd166, 0.85)
+      .setDepth(4);
+
+    // It hovers a few pixels above the floor, so it reads as a blind box rather
+    // than as scenery.
     this.tweens.add({
-      targets: [beam, core],
-      alpha: { from: 0.55, to: 1 },
-      duration: 900,
+      targets: [box, frame],
+      y: cy - 7,
+      duration: 1150,
       yoyo: true,
       repeat: -1,
       ease: 'Sine.inOut'
     });
 
-    const glow = this.add.circle(cx, cy, 34, 0xffd166, 0.2).setDepth(2);
+    // The frame flickers while the halo breathes: lit from inside the box.
+    this.tweens.add({
+      targets: frame,
+      alpha: { from: 0.35, to: 1 },
+      duration: 260,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.inOut'
+    });
+
     this.tweens.add({
       targets: glow,
-      alpha: 0.45,
-      scale: 1.3,
-      duration: 700,
+      alpha: 0.4,
+      scale: 1.35,
+      duration: 780,
       yoyo: true,
       repeat: -1,
       ease: 'Sine.inOut'
     });
 
-    const chest = this.add
-      .image(cx, cy, 'crate')
-      .setDepth(3)
-      .setTint(0xffd166)
-      .setScale(1.15);
+    box.setData('kind', 'chest');
+    box.setData('glow', glow);
+    box.setData('frame', frame);
+    this.pickups.push(box);
 
-    this.tweens.add({
-      targets: chest,
-      scale: { from: 1, to: 1.2 },
-      duration: 640,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.inOut'
-    });
-
-    chest.setData('kind', 'chest');
-    chest.setData('glow', glow);
-    chest.setData('beam', beam);
-    chest.setData('core', core);
-    this.pickups.push(chest);
-
-    this.chestToast('赛博宝箱出现！', '#ffe66d');
+    this.chestToast('数据盲盒出现，踩上去开！', '#ffe38a');
     haptic('level_up');
-    Sfx.buy();
+    Sfx.lootAppear();
   }
 
   /// What a random trinket the run can still take looks like.
@@ -3816,17 +3810,23 @@ export class GameScene extends Phaser.Scene {
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
-  /// Opens a chest: one or two rewards at a quality the shop rarely offers.
+  /// Opens a box: one or two rewards at a quality the shop rarely offers.
   openChest(chest) {
     const wave = this.state.wave;
     const count = Math.random() < 0.4 ? 2 : 1;
+    const x = chest.x;
+    const y = chest.y;
 
-    this.spawnBurst(chest.x, chest.y, 0xffd166, 14);
+    let best = null;
+
+    this.spawnBurst(x, y, 0xffd166, 14);
+    this.lootRings(x, y);
     haptic('level_up');
-    Sfx.buy();
+    Sfx.lootDing();
 
     for (let i = 0; i < count; i++) {
       const rarity = rollChestRarity();
+      if (!best || rarity.rank > best.rank) best = rarity;
 
       const wantWeapon =
         this.state.weapons.length < WEAPON_SLOTS && Math.random() < 0.45;
@@ -3861,8 +3861,39 @@ export class GameScene extends Phaser.Scene {
       this.chestToast(`获得 ${coins} 金币！`, '#ffe66d');
     }
 
-    // A boss chest closes the ceremony: the way on appears once it is opened.
+    // A purple or gold drop gets a second, cyber-coloured pop on top.
+    if (best && best.rank >= 3) {
+      this.time.delayedCall(120, () => {
+        this.lootRings(x, y, 0x39e6cd);
+        Sfx.lootBurst(panFor(x, this.layout.width));
+        this.cameras.main.flash(110, 150, 235, 255);
+      });
+    }
+
+    // A boss box closes the ceremony: the way on appears once it is opened.
     if (this.chestPhase) this.showChestContinue();
+  }
+
+  /// A pixel ring blown out from the box, twice, so an open reads as a pop.
+  lootRings(x, y, tint) {
+    for (let i = 0; i < 2; i++) {
+      const ring = this.add
+        .image(x, y, 'loot-ring')
+        .setDepth(9)
+        .setScale(0.45)
+        .setAlpha(0.95)
+        .setTint(tint === undefined ? 0xffd166 : tint);
+
+      this.tweens.add({
+        targets: ring,
+        scale: 2.8 + i * 0.7,
+        alpha: 0,
+        delay: i * 80,
+        duration: 380 + i * 90,
+        ease: 'Cubic.out',
+        onComplete: () => ring.destroy()
+      });
+    }
   }
 
   /// A reward line that names the quality it came in at.
@@ -4083,7 +4114,7 @@ export class GameScene extends Phaser.Scene {
     const field = this.layout.field;
     this.spawnChest(field.centerX, field.centerY);
 
-    this.banner('首领已击败', '走到中间的赛博宝箱上开启奖励');
+    this.banner('首领已击败', '走到中间的数据盲盒上踩开奖励');
     haptic('wave_clear');
   }
 

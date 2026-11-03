@@ -124,6 +124,28 @@ export const CRATE = [
   0x7f8c96 // 4 dark strap
 ];
 
+// 数据盲盒: a small wooden box with gold trim, a bright lid band and a cyan
+// cyber lock, so it reads as a toy to be opened rather than scenery.
+export const LOOTBOX = [
+  null,
+  0x2a1a0e, // 1 outline
+  0x6b3f1e, // 2 dark wood
+  0x9a5c2a, // 3 body wood
+  0xc47f3f, // 4 highlight wood
+  0xffd166, // 5 gold trim
+  0xfff3c4, // 6 bright gold band
+  0x39e6cd // 7 cyber lock
+];
+
+// The pixel shockwave a box blows out when it opens.
+export const LOOT_RING = [
+  null,
+  0x6b4a12, // 1 deep gold
+  0xffd166, // 2 gold
+  0xfff3c4, // 2 bright gold
+  0x39e6cd // 4 cyber edge
+];
+
 // Character palettes. Same matrix, different wardrobe and different numbers.
 export const IRON = [
   null,

@@ -229,7 +229,7 @@ export function rollWeaponRarity(wave, minRank = 0) {
   return WEAPON_RARITIES[Math.min(floor, WEAPON_RARITIES.length - 1)];
 }
 
-/// The tier a cyber chest hands out: never white or green, with roughly a third
+/// The tier a 数据盲盒 hands out: never white or green, with roughly a third
 /// of the rolls purple or gold.
 export function rollChestRarity() {
   const roll = Math.random();

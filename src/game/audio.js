@@ -388,6 +388,60 @@ export const Sfx = {
   heal() {
     tone({ freq: 660, type: 'sine', dur: 0.18, vol: 0.07 });
     tone({ freq: 990, type: 'sine', dur: 0.22, vol: 0.05, at: 0.12 });
+  },
+
+  /// 数据盲盒 landing on the floor: a quiet two-note chime, so the player hears
+  /// something arrive without it sounding like a reward already claimed.
+  lootAppear() {
+    tone({ freq: 784, type: 'sine', dur: 0.14, vol: 0.035 });
+    tone({ freq: 1175, type: 'sine', dur: 0.2, vol: 0.028, at: 0.1 });
+  },
+
+  /// The box popping open: three quick rising bell notes, a music box wound by
+  /// hand. Short and bright, never shrill.
+  lootDing() {
+    const notes = [1318.5, 1760, 2349.3];
+    notes.forEach((freq, i) => {
+      tone({ freq, type: 'sine', dur: 0.26, vol: 0.07, at: i * 0.075 });
+      tone({
+        freq: freq * 2,
+        type: 'triangle',
+        dur: 0.11,
+        vol: 0.014,
+        at: i * 0.075
+      });
+    });
+
+    // A breath of air on the front, which is what makes it read as "crisp".
+    noise({ dur: 0.05, vol: 0.018, filter: 5200, type: 'highpass', at: 0.02 });
+  },
+
+  /// A purple or gold drop landed: a burst of electric static, then a low boom
+  /// underneath it.
+  lootBurst(pan = 0) {
+    noise({
+      dur: 0.26,
+      vol: 0.085,
+      filter: 900,
+      slide: 6000,
+      type: 'bandpass',
+      pan
+    });
+
+    for (let i = 0; i < 4; i++) {
+      tone({
+        freq: 2400,
+        to: 700,
+        type: 'square',
+        dur: 0.05,
+        vol: 0.018,
+        at: 0.02 + i * 0.05,
+        pan
+      });
+    }
+
+    tone({ freq: 150, to: 38, type: 'sine', dur: 0.5, vol: 0.15, at: 0.06, pan });
+    noise({ dur: 0.3, vol: 0.045, filter: 700, slide: 200, at: 0.05, pan });
   }
 };
 
