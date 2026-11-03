@@ -359,3 +359,14 @@ export const TURRET_PIXELS = sym(
   '0011110',
   '0000000'
 );
+
+
+// A chunky side-on blaster, used wherever a character needs to be seen holding
+// something. Drawn in steel and tinted per owner, so one texture serves them all.
+export const GUN_PIXELS = [
+  '0001111111000',
+  '0112222222110',
+  '1223333332211',
+  '0001122211000',
+  '0000011000000'
+];

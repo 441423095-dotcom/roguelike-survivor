@@ -50,6 +50,7 @@ import {
   ORB_PIXELS,
   COIN_PIXELS,
   CRATE_PIXELS,
+  GUN_PIXELS,
   buildFloorPixels
 } from './sprites.js';
 
@@ -87,4 +88,5 @@ export function buildTextures(scene) {
   renderPixelArt(scene, 'coin', COIN_PIXELS, COIN, 2);
   renderPixelArt(scene, 'crate', CRATE_PIXELS, CRATE, 3);
   renderPixelArt(scene, 'floor', buildFloorPixels(), FLOOR, 2);
+  renderPixelArt(scene, 'gun', GUN_PIXELS, IRON, 3);
 }

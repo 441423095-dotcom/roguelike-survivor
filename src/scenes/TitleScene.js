@@ -9,6 +9,7 @@ import { haptic } from '../haptics.js';
 import { loadProgress, formatDuration, clearProgress } from '../game/progress.js';
 import { loadMeta } from '../game/meta.js';
 import { initAudio, startMusic } from '../game/audio.js';
+import { CHARACTERS } from '../game/characters.js';
 import { sharpenText } from '../ui/text.js';
 import { applyCameraZoom, viewSize } from '../ui/view.js';
 
@@ -68,9 +69,12 @@ export class TitleScene extends Phaser.Scene {
     const titleY = H * 0.235;
     this.buildTitle(W, H, s, titleY);
 
+    // The squad, standing between the story and the way in.
+    this.buildRoster(W, H, s, H * 0.472);
+
     const btnW = Math.min(W - 84, 272 * s);
     const btnH = Math.round(60 * s);
-    const btnY = H * 0.575;
+    const btnY = H * 0.6;
     this.buildStart(W, H, s, btnY, btnW, btnH);
 
     // The neon frame around the start button needs room to breathe above the
@@ -292,6 +296,72 @@ export class TitleScene extends Phaser.Scene {
         0.42
       )
       .setDepth(1);
+  }
+
+  // ------------------------------------------------------------------ roster
+
+  /// A few of the game's own heroes on a neon baseline, each holding a gun: the
+  /// title screen shows what a run actually looks like.
+  buildRoster(W, H, s, cy) {
+    const squad = CHARACTERS.slice(0, 4);
+    const size = Math.min(66 * s, H * 0.072);
+    const gap = Math.min((W - 72) / squad.length, size * 1.45);
+    const span = gap * (squad.length - 1);
+    const startX = W / 2 - span / 2;
+    const edge = size * 0.62;
+
+    const base = this.add.graphics().setDepth(0);
+    base.lineStyle(2, 0x2bd3c4, 0.22);
+    base.lineBetween(
+      startX - edge,
+      cy + size * 0.55,
+      startX + span + edge,
+      cy + size * 0.55
+    );
+    base.lineStyle(1, 0x39e6cd, 0.1);
+    base.lineBetween(
+      startX - edge,
+      cy + size * 0.62,
+      startX + span + edge,
+      cy + size * 0.62
+    );
+
+    squad.forEach((character, i) => {
+      const x = startX + gap * i;
+      const y = cy + (i % 2 === 0 ? -2 : 2) * s;
+
+      this.add
+        .ellipse(
+          x,
+          cy + size * 0.52,
+          size * 0.95,
+          size * 0.3,
+          character.color,
+          0.14
+        )
+        .setDepth(0);
+
+      const unit = this.add.container(x, y).setDepth(1);
+
+      const hero = this.add
+        .image(0, 0, character.texture)
+        .setDisplaySize(size, size);
+      const gun = this.add
+        .image(size * 0.42, size * 0.1, 'gun')
+        .setDisplaySize(size * 0.52, size * 0.2)
+        .setTint(character.color);
+
+      unit.add([hero, gun]);
+
+      this.tweens.add({
+        targets: unit,
+        y: y - 3 * s,
+        duration: 1500 + i * 170,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.inOut'
+      });
+    });
   }
 
   // ----------------------------------------------------------------- buttons
